@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>发票助手 - 发票文件重命名</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">￥</div>
+          <div>
+            <h1>票票帮</h1>
+            <p>发票管理好帮手</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item">发票台账管理</button>
+          <button class="nav-item">发票合并打印</button>
+          <button class="nav-item">发票统计查重</button>
+          <button class="nav-item">发票格式转换</button>
+          <button class="nav-item">发票添加专用章</button>
+          <button class="nav-item">发票分文件夹</button>
+          <button class="nav-item nav-item-active">发票文件重命名</button>
+          <div class="nav-sub-group">
+            <button class="nav-sub-item nav-sub-item-active" data-invoice-type="general">常规数电发票</button>
+            <button class="nav-sub-item" data-invoice-type="railway">铁路电子客票</button>
+            <button class="nav-sub-item" data-invoice-type="airline">航空电子客票</button>
+          </div>
+          <button class="nav-item">发票文件合并</button>
+          <button class="nav-item">发票文件拆分</button>
+          <button class="nav-item">发票文件对切</button>
+          <button class="nav-item">发票文件修复</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <div class="hero-chip" id="heroChip">常规数电发票</div>
+          <h2 id="heroTitle">免费在线 PDF / OFD 格式常规数电发票文件重命名</h2>
+          <p id="heroDescription">
+            批量上传常规数电发票文件，按票面字段自动识别并预览新文件名，支持自定义规则后导出重命名结果压缩包。
+          </p>
+        </section>
+
+        <section class="steps">
+          <div class="step active">
+            <span>1</span>
+            <strong>上传票据文件</strong>
+          </div>
+          <div class="step-line"></div>
+          <div class="step">
+            <span>2</span>
+            <strong>设置重命名规则</strong>
+          </div>
+          <div class="step-line"></div>
+          <div class="step">
+            <span>3</span>
+            <strong>导出重命名结果</strong>
+          </div>
+        </section>
+
+        <section class="panel upload-panel">
+          <div id="dropzone" class="dropzone">
+            <input id="fileInput" type="file" multiple accept=".pdf,.ofd" hidden />
+            <div class="drop-icon">📄</div>
+            <h3 id="uploadTitle">点击或拖拽上传 PDF / OFD 格式常规数电发票文件</h3>
+            <p id="uploadDescription">支持多选批量上传，上传后先进入解析结果列表，再手动开始重命名。</p>
+            <button id="pickFilesBtn" class="primary-btn">选择文件</button>
+          </div>
+
+          <div class="toolbar">
+            <div>
+              <strong id="summaryText">暂未上传文件</strong>
+              <p id="statusText">上传后先进入解析结果列表，点击开始重命名后再生成新文件名预览。</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="configureRuleBtn" class="secondary-btn" disabled>设置重命名规则</button>
+              <button id="previewBtn" class="secondary-btn" disabled>开始重命名</button>
+              <button id="clearBtn" class="secondary-btn" disabled>清空列表</button>
+              <button id="downloadBtn" class="primary-btn" disabled>下载重命名文件</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-header">
+            <h3>解析结果</h3>
+            <span id="resultBadge" class="badge">等待上传</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr id="resultsHeaderRow"></tr>
+              </thead>
+              <tbody id="resultsBody">
+                <tr class="empty-row">
+                  <td colspan="10">上传 PDF / OFD 文件后，这里会显示解析结果和重命名预览。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="ruleModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <h3>自定义重命名规则</h3>
+            <p>支持勾选排序拼接与模板输入两种方式，可实时预览结果。</p>
+          </div>
+          <button id="closeRuleBtn" class="icon-btn">×</button>
+        </div>
+
+        <div class="mode-switch">
+          <button class="mode-btn mode-btn-active" data-mode="tokens">勾选拼接</button>
+          <button class="mode-btn" data-mode="template">模板输入</button>
+        </div>
+
+        <div class="modal-content">
+          <div class="field-pool">
+            <h4>可用字段</h4>
+            <div id="fieldPool" class="field-list"></div>
+
+            <div class="custom-text-box">
+              <label for="customTextInput">插入固定文字</label>
+              <div class="inline-row">
+                <input id="customTextInput" type="text" placeholder="例如：差旅报销" />
+                <button id="addCustomTextBtn" class="secondary-btn">添加</button>
+              </div>
+            </div>
+
+            <div class="format-box">
+              <label for="separatorInput">分隔符</label>
+              <input id="separatorInput" type="text" value="_" maxlength="3" />
+
+              <label for="dateFormatSelect">日期格式</label>
+              <select id="dateFormatSelect">
+                <option value="YYYY年MM月DD日">2025年03月31日</option>
+                <option value="YYYY-MM-DD">2025-03-31</option>
+              </select>
+
+              <label for="amountFormatSelect">金额格式</label>
+              <select id="amountFormatSelect">
+                <option value="0.00">123.00</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="rule-builder" id="tokensPanel">
+            <h4>已选规则项</h4>
+            <div id="tokenList" class="token-list empty">
+              <div class="empty-builder">勾选左侧字段或添加固定文字</div>
+            </div>
+          </div>
+
+          <div class="rule-builder hidden" id="templatePanel">
+            <h4>模板规则</h4>
+            <textarea id="templateInput" rows="8"></textarea>
+            <p class="template-hint" id="templateHint"></p>
+          </div>
+        </div>
+
+        <div class="preview-box">
+          <span>示例预览</span>
+          <strong id="modalPreview">暂无示例</strong>
+        </div>
+
+        <div class="modal-actions">
+          <button id="cancelRuleBtn" class="secondary-btn">取消</button>
+          <button id="saveRuleBtn" class="primary-btn">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
