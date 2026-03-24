@@ -5,24 +5,78 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import Callable
+from urllib.parse import unquote
 
 from flask import Flask, jsonify, render_template, request, send_file
+from openpyxl import Workbook
 from werkzeug.utils import secure_filename
 
 from invoice_helper.airline_invoice import build_airline_invoice_preview_name, parse_airline_invoice_from_bytes
 from invoice_helper.general_invoice import apply_duplicate_strategy, build_general_invoice_preview_name, parse_general_invoice_from_bytes
+from invoice_helper.ledger import build_ledger_entry, delete_ledger_entries, detect_invoice_for_ledger, get_ledger_entry, init_ledger_db, insert_ledger_entry, list_ledger_entries
 from invoice_helper.models import AirlineInvoiceDocument, AirlineInvoiceFields, GeneralInvoiceDocument, GeneralInvoiceFields, RailwayDocument, RailwayTicketFields, RenameRuleConfig
 from invoice_helper.railway import build_preview_name, parse_railway_ticket_from_bytes
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "runtime"
 UPLOAD_DIR = DATA_DIR / "uploads"
+LEDGER_DB_PATH = DATA_DIR / "ledger.sqlite3"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+init_ledger_db(LEDGER_DB_PATH)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 RAILWAY_DOCUMENT_STORE: dict[str, RailwayDocument] = {}
 GENERAL_DOCUMENT_STORE: dict[str, GeneralInvoiceDocument] = {}
 AIRLINE_DOCUMENT_STORE: dict[str, AirlineInvoiceDocument] = {}
+
+GENERAL_FIELD_DEFINITIONS = [
+    ("invoice_type", "发票类型"),
+    ("invoice_code", "发票代码"),
+    ("invoice_number", "发票号码"),
+    ("issue_date", "开票日期"),
+    ("buyer_name", "购买方名称"),
+    ("buyer_tax_number", "购买方税号"),
+    ("seller_name", "销售方名称"),
+    ("seller_tax_number", "销售方税号"),
+    ("amount", "发票金额"),
+    ("tax_amount", "发票税额"),
+    ("total_amount", "价税合计"),
+    ("total_amount_upper", "价税合计大写"),
+    ("remarks", "备注"),
+    ("payee", "收款人"),
+    ("reviewer", "复核人"),
+    ("issuer", "开票人"),
+    ("custom_content", "自定义内容"),
+]
+
+RAILWAY_FIELD_DEFINITIONS = [
+    ("invoice_number", "发票号码"),
+    ("issue_date", "开票日期"),
+    ("departure_station", "出发站"),
+    ("arrival_station", "到达站"),
+    ("departure_datetime", "发车时间"),
+    ("train_number", "车次"),
+    ("seat_number", "座位号"),
+    ("amount", "票价"),
+    ("passenger_name", "乘车人姓名"),
+    ("passenger_id", "乘车人身份证号"),
+    ("custom_content", "自定义内容"),
+]
+
+AIRLINE_FIELD_DEFINITIONS = [
+    ("invoice_number", "发票号码"),
+    ("issue_date", "开票日期"),
+    ("departure_airport", "起飞机场"),
+    ("arrival_airport", "着陆机场"),
+    ("flight_number", "航班号"),
+    ("cabin_class", "座位等级"),
+    ("departure_time", "起飞时间"),
+    ("amount", "票价"),
+    ("total_amount", "价税合计"),
+    ("passenger_name", "乘机人姓名"),
+    ("passenger_id", "乘机人身份证号"),
+    ("custom_content", "自定义内容"),
+]
 
 
 @app.errorhandler(ValueError)
@@ -33,6 +87,11 @@ def handle_value_error(error):
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/ledger")
+def ledger_page():
+    return render_template("ledger.html")
 
 
 @app.post("/api/railway/upload-and-parse")
@@ -128,6 +187,36 @@ def airline_export():
     )
 
 
+@app.post("/api/railway/export-excel")
+def railway_export_excel():
+    return _export_excel(
+        store=RAILWAY_DOCUMENT_STORE,
+        field_definitions=RAILWAY_FIELD_DEFINITIONS,
+        download_name="铁路电子客票信息台账.xlsx",
+        sheet_name="铁路电子客票",
+    )
+
+
+@app.post("/api/general-invoice/export-excel")
+def general_export_excel():
+    return _export_excel(
+        store=GENERAL_DOCUMENT_STORE,
+        field_definitions=GENERAL_FIELD_DEFINITIONS,
+        download_name="常规数电发票信息台账.xlsx",
+        sheet_name="常规数电发票",
+    )
+
+
+@app.post("/api/airline/export-excel")
+def airline_export_excel():
+    return _export_excel(
+        store=AIRLINE_DOCUMENT_STORE,
+        field_definitions=AIRLINE_FIELD_DEFINITIONS,
+        download_name="航空电子客票信息台账.xlsx",
+        sheet_name="航空电子客票",
+    )
+
+
 @app.delete("/api/railway/documents/<document_id>")
 def railway_delete_document(document_id: str):
     return jsonify(_delete_document(document_id, RAILWAY_DOCUMENT_STORE))
@@ -156,6 +245,107 @@ def general_clear_documents():
 @app.delete("/api/airline/documents")
 def airline_clear_documents():
     return jsonify(_clear_documents(AIRLINE_DOCUMENT_STORE))
+
+
+@app.post("/api/ledger/upload-and-parse")
+def ledger_upload_and_parse():
+    files = request.files.getlist("files")
+    if not files:
+        raise ValueError("请至少上传一个 PDF 或 OFD 文件。")
+
+    created_entries: list[dict] = []
+    failed_entries: list[dict] = []
+    for file_storage in files:
+        entry_id = str(uuid.uuid4())
+        original_name = file_storage.filename or "未命名文件"
+        suffix = Path(original_name).suffix.lower()
+        stored_name = f"{entry_id}{suffix}"
+        stored_path = UPLOAD_DIR / secure_filename(stored_name)
+        file_bytes = file_storage.read()
+        stored_path.write_bytes(file_bytes)
+
+        try:
+            category, fields, raw_text = detect_invoice_for_ledger(original_name, file_bytes)
+            entry = build_ledger_entry(
+                entry_id=entry_id,
+                category=category,
+                fields=fields,
+                raw_text=raw_text,
+                original_name=original_name,
+                stored_path=str(stored_path),
+                file_type=suffix.lstrip("."),
+            )
+            insert_ledger_entry(LEDGER_DB_PATH, entry)
+            created_entries.append(_ledger_list_item(get_ledger_entry(LEDGER_DB_PATH, entry_id)))
+        except Exception as exc:
+            if stored_path.exists():
+                stored_path.unlink()
+            failed_entries.append({"originalName": original_name, "error": str(exc)})
+
+    return jsonify({"created": created_entries, "failed": failed_entries})
+
+
+@app.get("/api/ledger/list")
+def ledger_list():
+    invoice_types = _split_query_values(request.args.get("invoice_types", ""))
+    expense_types = _split_query_values(request.args.get("expense_types", ""))
+    entries = list_ledger_entries(LEDGER_DB_PATH, invoice_types=invoice_types or None, expense_types=expense_types or None)
+    return jsonify([_ledger_list_item(entry) for entry in entries])
+
+
+@app.get("/api/ledger/<entry_id>")
+def ledger_detail(entry_id: str):
+    entry = get_ledger_entry(LEDGER_DB_PATH, entry_id)
+    if not entry:
+        raise ValueError("未找到对应的台账发票。")
+    return jsonify(_ledger_detail_payload(entry))
+
+
+@app.get("/api/ledger/<entry_id>/preview")
+def ledger_preview(entry_id: str):
+    entry = get_ledger_entry(LEDGER_DB_PATH, entry_id)
+    if not entry:
+        raise ValueError("未找到对应的台账发票。")
+    file_path = Path(entry["stored_path"])
+    if not file_path.exists():
+        raise ValueError("发票原文件不存在。")
+    return send_file(file_path, as_attachment=False, download_name=entry["original_name"])
+
+
+@app.get("/api/ledger/download")
+def ledger_download():
+    ids = _split_query_values(request.args.get("ids", ""))
+    entries = [get_ledger_entry(LEDGER_DB_PATH, entry_id) for entry_id in ids]
+    entries = [entry for entry in entries if entry]
+    if not entries:
+        raise ValueError("请选择至少一张发票。")
+    if len(entries) == 1:
+        entry = entries[0]
+        return send_file(Path(entry["stored_path"]), as_attachment=True, download_name=entry["original_name"])
+
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for entry in entries:
+            file_path = Path(entry["stored_path"])
+            if file_path.exists():
+                archive.writestr(entry["original_name"], file_path.read_bytes())
+    memory_file.seek(0)
+    return send_file(memory_file, as_attachment=True, download_name="发票台账下载.zip", mimetype="application/zip")
+
+
+@app.delete("/api/ledger")
+def ledger_delete():
+    payload = request.get_json(silent=True) or {}
+    entry_ids = payload.get("ids", [])
+    deleted_entries = delete_ledger_entries(LEDGER_DB_PATH, entry_ids)
+    for entry in deleted_entries:
+        file_path = Path(entry["stored_path"])
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except PermissionError:
+                pass
+    return jsonify({"message": "发票已删除。", "deletedCount": len(deleted_entries)})
 
 
 def _upload_and_parse(
@@ -242,6 +432,43 @@ def _export_documents(*, store: dict, preview_builder: Callable[[object, RenameR
     return send_file(memory_file, as_attachment=True, download_name=download_name, mimetype="application/zip")
 
 
+def _export_excel(*, store: dict, field_definitions: list[tuple[str, str]], download_name: str, sheet_name: str):
+    payload = request.get_json(silent=True) or {}
+    document_ids = payload.get("documentIds", [])
+    documents = _collect_documents(document_ids, store)
+    success_docs = [doc for doc in documents if doc.parse_status == "success"]
+    if not success_docs:
+        raise ValueError("没有可导出的成功解析票据。")
+
+    selected_columns = payload.get("excelColumns") or []
+    selected_columns = _resolve_excel_columns(selected_columns, field_definitions)
+    headers = ["原文件名", *[label for key, label in field_definitions if key in selected_columns]]
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = sheet_name[:31]
+    worksheet.append(headers)
+
+    for doc in success_docs:
+        fields_dict = doc.fields.to_dict()
+        row = [doc.original_name, *[fields_dict.get(column_key, "") for column_key in selected_columns]]
+        worksheet.append(row)
+
+    for column_cells in worksheet.columns:
+        max_length = max(len(str(cell.value or "")) for cell in column_cells)
+        worksheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 36)
+
+    memory_file = io.BytesIO()
+    workbook.save(memory_file)
+    memory_file.seek(0)
+    return send_file(
+        memory_file,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
 def _delete_document(document_id: str, store: dict) -> dict[str, str]:
     document = store.pop(document_id, None)
     if document is None:
@@ -267,6 +494,86 @@ def _collect_documents(document_ids: list[str], store: dict) -> list:
     if not documents:
         raise ValueError("未找到已上传的票据，请重新上传文件。")
     return documents
+
+
+def _resolve_excel_columns(selected_columns: list[str], field_definitions: list[tuple[str, str]]) -> list[str]:
+    allowed_keys = [key for key, _ in field_definitions]
+    if not selected_columns:
+        return allowed_keys
+    return [key for key in allowed_keys if key in selected_columns]
+
+
+def _split_query_values(value: str) -> list[str]:
+    if not value:
+        return []
+    return [unquote(item).strip() for item in value.split(",") if item.strip()]
+
+
+def _ledger_list_item(entry: dict) -> dict:
+    return {
+        "id": entry["id"],
+        "invoiceCategory": entry["invoice_category"],
+        "expenseType": entry["expense_type"],
+        "invoiceTypeFilter": entry["invoice_type_filter"],
+        "title": entry["title"],
+        "amount": entry["amount"],
+        "issueDate": entry["issue_date"],
+        "payerName": entry["payer_name"],
+        "sellerName": entry["seller_name"],
+        "itemSummary": entry["item_summary"],
+        "remarks": entry["remarks"],
+        "originalName": entry["original_name"],
+        "fileType": entry["file_type"],
+        "createdAt": entry["created_at"],
+    }
+
+
+def _ledger_detail_payload(entry: dict) -> dict:
+    fields = entry["fields"]
+    base_items = [
+        {"label": "票据号码", "value": fields.get("invoice_number", "")},
+        {"label": "收/付款方", "value": entry["seller_name"] or entry["payer_name"]},
+        {"label": "付款方", "value": entry["payer_name"]},
+        {"label": "项目名称", "value": entry["item_summary"]},
+        {"label": "金额", "value": f"¥ {entry['amount']}" if entry["amount"] else ""},
+        {"label": "开票日期", "value": entry["issue_date"]},
+        {"label": "发票种类", "value": entry["invoice_type_filter"]},
+        {"label": "来自", "value": "本地上传"},
+        {"label": "备注", "value": entry["remarks"]},
+    ]
+    extended_items = []
+    if entry["invoice_category"] == "railway":
+        extended_items = [
+            {"label": "出发站", "value": fields.get("departure_station", "")},
+            {"label": "到达站", "value": fields.get("arrival_station", "")},
+            {"label": "发车时间", "value": fields.get("departure_datetime", "")},
+            {"label": "车次", "value": fields.get("train_number", "")},
+            {"label": "座位号", "value": fields.get("seat_number", "")},
+        ]
+    elif entry["invoice_category"] == "airline":
+        extended_items = [
+            {"label": "起飞机场", "value": fields.get("departure_airport", "")},
+            {"label": "着陆机场", "value": fields.get("arrival_airport", "")},
+            {"label": "航班号", "value": fields.get("flight_number", "")},
+            {"label": "起飞时间", "value": fields.get("departure_time", "")},
+            {"label": "舱位", "value": fields.get("cabin_class", "")},
+        ]
+    else:
+        extended_items = [
+            {"label": "购买方名称", "value": fields.get("buyer_name", "")},
+            {"label": "购买方税号", "value": fields.get("buyer_tax_number", "")},
+            {"label": "销售方名称", "value": fields.get("seller_name", "")},
+            {"label": "销售方税号", "value": fields.get("seller_tax_number", "")},
+        ]
+
+    return {
+        **_ledger_list_item(entry),
+        "previewUrl": f"/api/ledger/{entry['id']}/preview",
+        "downloadUrl": f"/api/ledger/download?ids={entry['id']}",
+        "infoItems": base_items,
+        "extendedItems": extended_items,
+        "fields": fields,
+    }
 
 
 if __name__ == "__main__":

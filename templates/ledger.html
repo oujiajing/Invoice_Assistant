@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>发票助手 - 发票台账管理</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">￥</div>
+          <div>
+            <h1>票票帮</h1>
+            <p>发票管理好帮手</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item nav-item-active" href="/ledger">发票台账管理</a>
+          <button class="nav-item">发票合并打印</button>
+          <button class="nav-item">发票统计查重</button>
+          <button class="nav-item">发票格式转换</button>
+          <button class="nav-item">发票添加专用章</button>
+          <button class="nav-item">发票分文件夹</button>
+          <a class="nav-item" href="/">发票文件重命名</a>
+          <button class="nav-item">发票文件合并</button>
+          <button class="nav-item">发票文件拆分</button>
+          <button class="nav-item">发票文件对切</button>
+          <button class="nav-item">发票文件修复</button>
+        </nav>
+      </aside>
+
+      <main class="main ledger-main">
+        <section class="panel ledger-panel">
+          <div class="ledger-toolbar">
+            <div class="ledger-toolbar-left">
+              <div class="ledger-count-row">
+                <strong id="ledgerCountText">发票 · 0</strong>
+                <label class="ledger-select-all">
+                  <input id="selectAllCheckbox" type="checkbox" />
+                  <span>全选</span>
+                </label>
+              </div>
+              <div class="toolbar-actions">
+                <button id="ledgerPickFilesBtn" class="primary-btn">上传发票</button>
+                <button id="ledgerDownloadBtn" class="secondary-btn" disabled>下载</button>
+                <button id="ledgerDeleteBtn" class="secondary-btn" disabled>删除</button>
+              </div>
+              <input id="ledgerFileInput" type="file" multiple accept=".pdf,.ofd" hidden />
+            </div>
+          </div>
+        </section>
+
+        <section class="ledger-content">
+          <div class="ledger-list-area">
+            <div id="ledgerStatusText" class="ledger-status-text">上传高铁票、机票、住宿发票后，这里会显示台账卡片。</div>
+            <div id="ledgerGroups" class="ledger-groups"></div>
+
+            <section id="ledgerDetailSection" class="panel ledger-detail-section hidden">
+              <div class="panel-header ledger-detail-header">
+                <h3>发票信息</h3>
+                <div class="toolbar-actions">
+                  <a id="ledgerDetailDownloadLink" class="secondary-btn" href="#" download>下载发票</a>
+                  <button id="collapseLedgerDetailBtn" class="secondary-btn">收起</button>
+                </div>
+              </div>
+
+              <div class="ledger-detail-layout">
+                <div class="ledger-preview-pane">
+                  <div id="ledgerPreviewContainer" class="ledger-preview-container"></div>
+                </div>
+                <div class="ledger-info-pane">
+                  <div id="ledgerInfoList" class="ledger-info-list"></div>
+                  <div id="ledgerExtendedList" class="ledger-info-list ledger-extended-list"></div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside id="ledgerFilterPanel" class="panel ledger-filter-panel collapsed">
+            <div class="panel-header ledger-filter-header">
+              <h3>筛选</h3>
+              <button id="toggleFilterBtn" class="secondary-btn">展开</button>
+            </div>
+
+            <div class="ledger-filter-body">
+              <div class="filter-group">
+                <h4>发票类型</h4>
+                <div class="filter-options">
+                  <label><input class="ledger-filter" data-filter-group="invoiceType" type="checkbox" value="增值税专票" /> 增值税专票</label>
+                  <label><input class="ledger-filter" data-filter-group="invoiceType" type="checkbox" value="普通发票" /> 普通发票</label>
+                </div>
+              </div>
+
+              <div class="filter-group">
+                <h4>费用类型</h4>
+                <div class="filter-options">
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="交通" /> 交通</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="餐饮" /> 餐饮</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="通讯" /> 通讯</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="住宿" /> 住宿</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="医疗" /> 医疗</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="物流" /> 物流</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="租赁" /> 租赁</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="物管" /> 物管</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="商品" /> 商品</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="服务" /> 服务</label>
+                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="其他" /> 其他</label>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='ledger.js') }}"></script>
+  </body>
+</html>

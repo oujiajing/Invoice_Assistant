@@ -18,13 +18,13 @@
         </div>
 
         <nav class="nav">
-          <button class="nav-item">发票台账管理</button>
+          <a class="nav-item" href="/ledger">发票台账管理</a>
           <button class="nav-item">发票合并打印</button>
           <button class="nav-item">发票统计查重</button>
           <button class="nav-item">发票格式转换</button>
           <button class="nav-item">发票添加专用章</button>
           <button class="nav-item">发票分文件夹</button>
-          <button class="nav-item nav-item-active">发票文件重命名</button>
+          <a class="nav-item nav-item-active" href="/">发票文件重命名</a>
           <div class="nav-sub-group">
             <button class="nav-sub-item nav-sub-item-active" data-invoice-type="general">常规数电发票</button>
             <button class="nav-sub-item" data-invoice-type="railway">铁路电子客票</button>
@@ -81,6 +81,7 @@
               <button id="configureRuleBtn" class="secondary-btn" disabled>设置重命名规则</button>
               <button id="previewBtn" class="secondary-btn" disabled>开始重命名</button>
               <button id="clearBtn" class="secondary-btn" disabled>清空列表</button>
+              <button id="exportExcelBtn" class="secondary-btn" disabled>导出 Excel</button>
               <button id="downloadBtn" class="primary-btn" disabled>下载重命名文件</button>
             </div>
           </div>
@@ -175,6 +176,34 @@
         <div class="modal-actions">
           <button id="cancelRuleBtn" class="secondary-btn">取消</button>
           <button id="saveRuleBtn" class="primary-btn">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="excelModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-card excel-modal-card">
+        <div class="modal-header">
+          <div>
+            <h3>导出 Excel 台账</h3>
+            <p>勾选需要导出的票面字段列，支持全选与反选。</p>
+          </div>
+          <button id="closeExcelBtn" class="icon-btn">×</button>
+        </div>
+
+        <div class="excel-toolbar">
+          <strong id="excelSelectionSummary">已选择 0 列</strong>
+          <div class="toolbar-actions">
+            <button id="selectAllExcelBtn" class="secondary-btn">全选</button>
+            <button id="invertExcelBtn" class="secondary-btn">反选</button>
+          </div>
+        </div>
+
+        <div id="excelColumnList" class="excel-column-list"></div>
+
+        <div class="modal-actions">
+          <button id="cancelExcelBtn" class="secondary-btn">取消</button>
+          <button id="confirmExcelBtn" class="primary-btn">确定导出</button>
         </div>
       </div>
     </div>

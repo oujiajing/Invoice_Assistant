@@ -2,9 +2,11 @@ from io import BytesIO
 from pathlib import Path
 import shutil
 
+from openpyxl import load_workbook
 import pytest
 
 import app as app_module
+from invoice_helper.ledger import init_ledger_db
 from invoice_helper.models import AirlineInvoiceFields, GeneralInvoiceFields, RailwayTicketFields
 
 
@@ -15,7 +17,10 @@ def client(monkeypatch):
     temp_root.mkdir(exist_ok=True)
     upload_dir = temp_root / "uploads"
     upload_dir.mkdir(exist_ok=True)
+    db_path = temp_root / "ledger.sqlite3"
     monkeypatch.setattr(app_module, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(app_module, "LEDGER_DB_PATH", db_path)
+    init_ledger_db(db_path)
     app_module.RAILWAY_DOCUMENT_STORE.clear()
     app_module.GENERAL_DOCUMENT_STORE.clear()
     app_module.AIRLINE_DOCUMENT_STORE.clear()
@@ -81,6 +86,29 @@ def test_upload_preview_and_export_flow(client, monkeypatch):
 
     assert export_response.status_code == 200
     assert export_response.mimetype == "application/zip"
+
+    excel_response = client.post(
+        "/api/railway/export-excel",
+        json={
+            "documentIds": [documents[0]["id"]],
+            "ruleConfig": {
+                "mode": "template",
+                "template": "{开票日期}_{出发站}_{到达站}_{票价}",
+                "dateFormat": "YYYY-MM-DD",
+            },
+            "excelColumns": ["invoice_number", "departure_station", "amount"],
+        },
+    )
+
+    assert excel_response.status_code == 200
+    assert excel_response.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    workbook = load_workbook(BytesIO(excel_response.data))
+    worksheet = workbook.active
+    headers = [cell.value for cell in worksheet[1]]
+    row = [cell.value for cell in worksheet[2]]
+    assert headers == ["原文件名", "发票号码", "出发站", "票价"]
+    assert row[0] == "ticket.pdf"
+    assert row[1:] == ["25429165800000526150", "武汉站", "623.00"]
 
 
 def test_delete_and_clear_documents(client, monkeypatch):
@@ -154,6 +182,30 @@ def test_general_invoice_flow(client, monkeypatch):
     assert preview_response.status_code == 200
     assert preview_response.get_json()[0]["conflictResolvedName"] == "2025-01-03_上海淳大酒店投资管理有限公司_813.64"
 
+    excel_response = client.post(
+        "/api/general-invoice/export-excel",
+        json={
+            "documentIds": [document["id"]],
+            "ruleConfig": {
+                "mode": "template",
+                "template": "{开票日期}_{销售方名称}_{价税合计}",
+                "dateFormat": "YYYY-MM-DD",
+            },
+            "excelColumns": [],
+        },
+    )
+
+    assert excel_response.status_code == 200
+    workbook = load_workbook(BytesIO(excel_response.data))
+    worksheet = workbook.active
+    headers = [cell.value for cell in worksheet[1]]
+    row = [cell.value for cell in worksheet[2]]
+    assert headers[0] == "原文件名"
+    assert "购买方名称" in headers
+    assert "销售方名称" in headers
+    assert "解析状态" not in headers
+    assert row[headers.index("销售方名称")] == "上海淳大酒店投资管理有限公司"
+
 
 def test_airline_invoice_flow(client, monkeypatch):
     def fake_parse(file_name, file_bytes):
@@ -195,3 +247,151 @@ def test_airline_invoice_flow(client, monkeypatch):
     )
     assert preview_response.status_code == 200
     assert preview_response.get_json()[0]["conflictResolvedName"] == "2026-03-18_北京大兴_广州_JD5921_930.00"
+
+    excel_response = client.post(
+        "/api/airline/export-excel",
+        json={
+            "documentIds": [document["id"]],
+            "ruleConfig": {
+                "mode": "template",
+                "template": "{开票日期}_{起飞机场}_{着陆机场}_{航班号}_{价税合计}",
+                "dateFormat": "YYYY-MM-DD",
+            },
+            "excelColumns": ["flight_number", "passenger_name"],
+        },
+    )
+
+    assert excel_response.status_code == 200
+    workbook = load_workbook(BytesIO(excel_response.data))
+    worksheet = workbook.active
+    headers = [cell.value for cell in worksheet[1]]
+    row = [cell.value for cell in worksheet[2]]
+    assert headers == ["原文件名", "航班号", "乘机人姓名"]
+    assert row == ["airline.pdf", "JD5921", "李志"]
+
+
+def test_export_excel_requires_successful_documents(client):
+    upload_response = client.post(
+        "/api/railway/upload-and-parse",
+        data={"files": (BytesIO(b"%PDF-1.4 fake"), "broken.pdf")},
+        content_type="multipart/form-data",
+    )
+
+    assert upload_response.status_code == 200
+    document = upload_response.get_json()[0]
+
+    excel_response = client.post(
+        "/api/railway/export-excel",
+        json={
+            "documentIds": [document["id"]],
+            "ruleConfig": {"mode": "tokens"},
+            "excelColumns": ["invoice_number"],
+        },
+    )
+
+    assert excel_response.status_code == 400
+    assert excel_response.get_json()["message"] == "没有可导出的成功解析票据。"
+
+
+def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
+    def fake_detect(file_name, file_bytes):
+        if "rail" in file_name:
+            return (
+                "railway",
+                RailwayTicketFields(
+                    invoice_number="25429165848000965552",
+                    issue_date="2025-03-31",
+                    departure_station="广州南站",
+                    arrival_station="长沙南站",
+                    departure_datetime="2025-03-30 16:21",
+                    train_number="G810",
+                    amount="314.00",
+                    passenger_name="李志",
+                ).to_dict(),
+                "铁路电子客票",
+            )
+        if "air" in file_name:
+            return (
+                "airline",
+                AirlineInvoiceFields(
+                    invoice_number="26112000001054174981",
+                    issue_date="2025-09-15",
+                    departure_airport="北京大兴",
+                    arrival_airport="广州",
+                    flight_number="JD5921",
+                    cabin_class="经济舱 Q舱",
+                    departure_time="2025-09-15",
+                    total_amount="930.00",
+                    passenger_name="李志",
+                ).to_dict(),
+                "北京首都航空有限公司",
+            )
+        if "hotel" in file_name:
+            return (
+                "general",
+                GeneralInvoiceFields(
+                    invoice_type="电子发票（普通发票）",
+                    invoice_number="25312000000002446025",
+                    issue_date="2025-01-08",
+                    buyer_name="广东工业大学",
+                    seller_name="北京大小酒店有限公司雅乐轩饭店",
+                    total_amount="629.64",
+                    remarks="*住宿服务*住宿服务",
+                ).to_dict(),
+                "*住宿服务*住宿服务",
+            )
+        raise ValueError("未识别为支持的发票类型。")
+
+    monkeypatch.setattr(app_module, "detect_invoice_for_ledger", fake_detect)
+
+    upload_response = client.post(
+        "/api/ledger/upload-and-parse",
+        data={
+            "files": [
+                (BytesIO(b"%PDF rail"), "rail-ticket.pdf"),
+                (BytesIO(b"%PDF air"), "air-ticket.pdf"),
+                (BytesIO(b"%PDF hotel"), "hotel-ticket.pdf"),
+                (BytesIO(b"%PDF bad"), "bad-ticket.pdf"),
+            ]
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert upload_response.status_code == 200
+    payload = upload_response.get_json()
+    assert len(payload["created"]) == 3
+    assert len(payload["failed"]) == 1
+
+    list_response = client.get("/api/ledger/list")
+    assert list_response.status_code == 200
+    entries = list_response.get_json()
+    assert len(entries) == 3
+    assert {entry["expenseType"] for entry in entries} == {"交通", "住宿"}
+
+    transport_response = client.get("/api/ledger/list?expense_types=交通")
+    assert transport_response.status_code == 200
+    transport_entries = transport_response.get_json()
+    assert len(transport_entries) == 2
+    assert all(entry["expenseType"] == "交通" for entry in transport_entries)
+
+    hotel_entry = next(entry for entry in entries if entry["expenseType"] == "住宿")
+    detail_response = client.get(f"/api/ledger/{hotel_entry['id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.get_json()
+    assert detail["title"] == "北京大小酒店有限公司雅乐轩饭店"
+    assert detail["infoItems"][3]["label"] == "项目名称"
+
+    preview_response = client.get(f"/api/ledger/{hotel_entry['id']}/preview")
+    assert preview_response.status_code == 200
+
+    single_download = client.get(f"/api/ledger/download?ids={hotel_entry['id']}")
+    assert single_download.status_code == 200
+
+    multi_download = client.get("/api/ledger/download?ids=" + ",".join(entry["id"] for entry in entries))
+    assert multi_download.status_code == 200
+    assert multi_download.mimetype == "application/zip"
+
+    delete_response = client.delete("/api/ledger", json={"ids": [hotel_entry["id"]]})
+    assert delete_response.status_code == 200
+    after_delete = client.get("/api/ledger/list").get_json()
+    assert len(after_delete) == 2

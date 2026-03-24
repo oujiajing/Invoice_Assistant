@@ -152,6 +152,11 @@ const state = {
     railway: createDefaultRuleConfig(invoiceTypeConfigs.railway),
     airline: createDefaultRuleConfig(invoiceTypeConfigs.airline),
   },
+  excelColumnsByType: {
+    general: invoiceTypeConfigs.general.fieldDefinitions.map(item => item.key),
+    railway: invoiceTypeConfigs.railway.fieldDefinitions.map(item => item.key),
+    airline: invoiceTypeConfigs.airline.fieldDefinitions.map(item => item.key),
+  },
 };
 
 const fileInput = document.getElementById("fileInput");
@@ -160,6 +165,7 @@ const pickFilesBtn = document.getElementById("pickFilesBtn");
 const configureRuleBtn = document.getElementById("configureRuleBtn");
 const previewBtn = document.getElementById("previewBtn");
 const clearBtn = document.getElementById("clearBtn");
+const exportExcelBtn = document.getElementById("exportExcelBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 const resultsHeaderRow = document.getElementById("resultsHeaderRow");
 const resultsBody = document.getElementById("resultsBody");
@@ -190,6 +196,14 @@ const modalPreview = document.getElementById("modalPreview");
 const modeButtons = [...document.querySelectorAll(".mode-btn")];
 const tokensPanel = document.getElementById("tokensPanel");
 const templatePanel = document.getElementById("templatePanel");
+const excelModal = document.getElementById("excelModal");
+const closeExcelBtn = document.getElementById("closeExcelBtn");
+const cancelExcelBtn = document.getElementById("cancelExcelBtn");
+const confirmExcelBtn = document.getElementById("confirmExcelBtn");
+const selectAllExcelBtn = document.getElementById("selectAllExcelBtn");
+const invertExcelBtn = document.getElementById("invertExcelBtn");
+const excelColumnList = document.getElementById("excelColumnList");
+const excelSelectionSummary = document.getElementById("excelSelectionSummary");
 
 let draggedTokenIndex = null;
 let dragOverTokenIndex = null;
@@ -200,9 +214,15 @@ fileInput.addEventListener("change", event => uploadFiles(event.target.files));
 configureRuleBtn.addEventListener("click", openRuleModal);
 previewBtn.addEventListener("click", previewNames);
 clearBtn.addEventListener("click", clearDocuments);
+exportExcelBtn.addEventListener("click", openExcelModal);
 downloadBtn.addEventListener("click", downloadZip);
 closeRuleBtn.addEventListener("click", closeRuleModal);
 cancelRuleBtn.addEventListener("click", closeRuleModal);
+closeExcelBtn.addEventListener("click", closeExcelModal);
+cancelExcelBtn.addEventListener("click", closeExcelModal);
+confirmExcelBtn.addEventListener("click", exportExcel);
+selectAllExcelBtn.addEventListener("click", selectAllExcelColumns);
+invertExcelBtn.addEventListener("click", invertExcelColumns);
 saveRuleBtn.addEventListener("click", async () => {
   syncRuleConfigFromModal();
   closeRuleModal();
@@ -264,6 +284,10 @@ function currentDocuments() {
 
 function currentRuleConfig() {
   return state.ruleConfigByType[state.activeInvoiceType];
+}
+
+function currentExcelColumns() {
+  return state.excelColumnsByType[state.activeInvoiceType];
 }
 
 function switchInvoiceType(invoiceType) {
@@ -481,6 +505,91 @@ async function downloadZip() {
   window.URL.revokeObjectURL(url);
 }
 
+function openExcelModal() {
+  renderExcelColumns();
+  excelModal.classList.remove("hidden");
+}
+
+function closeExcelModal() {
+  excelModal.classList.add("hidden");
+}
+
+function renderExcelColumns() {
+  const selected = new Set(currentExcelColumns());
+  excelColumnList.innerHTML = currentConfig().fieldDefinitions
+    .map(
+      field => `
+        <label class="excel-column-item">
+          <input type="checkbox" data-column-key="${escapeHtml(field.key)}" ${selected.has(field.key) ? "checked" : ""} />
+          <span>${escapeHtml(field.label)}</span>
+        </label>
+      `,
+    )
+    .join("");
+
+  excelColumnList.querySelectorAll("[data-column-key]").forEach(input => {
+    input.addEventListener("change", event => {
+      const { columnKey } = event.currentTarget.dataset;
+      const next = new Set(currentExcelColumns());
+      if (event.currentTarget.checked) {
+        next.add(columnKey);
+      } else {
+        next.delete(columnKey);
+      }
+      state.excelColumnsByType[state.activeInvoiceType] = currentConfig().fieldDefinitions
+        .map(item => item.key)
+        .filter(key => next.has(key));
+      updateExcelSelectionSummary();
+    });
+  });
+
+  updateExcelSelectionSummary();
+}
+
+function updateExcelSelectionSummary() {
+  excelSelectionSummary.textContent = `已选择 ${currentExcelColumns().length} 列`;
+}
+
+function selectAllExcelColumns() {
+  state.excelColumnsByType[state.activeInvoiceType] = currentConfig().fieldDefinitions.map(item => item.key);
+  renderExcelColumns();
+}
+
+function invertExcelColumns() {
+  const selected = new Set(currentExcelColumns());
+  state.excelColumnsByType[state.activeInvoiceType] = currentConfig().fieldDefinitions
+    .map(item => item.key)
+    .filter(key => !selected.has(key));
+  renderExcelColumns();
+}
+
+async function exportExcel() {
+  const response = await fetch(`${currentConfig().apiBase}/export-excel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      documentIds: currentDocuments().map(item => item.id),
+      ruleConfig: currentRuleConfig(),
+      excelColumns: currentExcelColumns(),
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "导出 Excel 失败，请稍后重试。" }));
+    window.alert(error.message || "导出 Excel 失败");
+    return;
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${currentConfig().label}信息台账.xlsx`;
+  link.click();
+  window.URL.revokeObjectURL(url);
+  closeExcelModal();
+}
+
 async function deleteDocument(documentId) {
   const response = await fetch(`${currentConfig().apiBase}/documents/${documentId}`, { method: "DELETE" });
   if (!response.ok) {
@@ -519,6 +628,7 @@ function renderResults() {
     configureRuleBtn.disabled = true;
     previewBtn.disabled = true;
     clearBtn.disabled = true;
+    exportExcelBtn.disabled = true;
     downloadBtn.disabled = true;
     return;
   }
@@ -532,6 +642,7 @@ function renderResults() {
   configureRuleBtn.disabled = false;
   previewBtn.disabled = false;
   clearBtn.disabled = false;
+  exportExcelBtn.disabled = false;
   downloadBtn.disabled = !readyToDownload;
 
   resultsBody.innerHTML = documents
@@ -650,6 +761,7 @@ function setBusyState(message) {
   statusText.textContent = message;
   previewBtn.disabled = true;
   clearBtn.disabled = true;
+  exportExcelBtn.disabled = true;
   downloadBtn.disabled = true;
 }
 
@@ -657,6 +769,7 @@ function clearBusyState(message) {
   statusText.textContent = message;
   previewBtn.disabled = !currentDocuments().length;
   clearBtn.disabled = !currentDocuments().length;
+  exportExcelBtn.disabled = !currentDocuments().length;
   downloadBtn.disabled = !currentDocuments().some(item => item.previewName);
 }
 
