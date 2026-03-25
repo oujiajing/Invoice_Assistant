@@ -4,6 +4,7 @@
 
 - 发票台账管理
 - 发票合并打印
+- 发票统计查重
 - 常规数电发票
 - 铁路电子客票
 - 航空电子客票
@@ -45,6 +46,7 @@ http://127.0.0.1:5050
 - 当前已实现“常规数电发票”、“铁路电子客票”和“航空电子客票”
 - 新增“发票台账管理”页面，支持混合上传、筛选、详情预览、批量下载与删除
 - 新增“发票合并打印”页面，支持 PDF/OFD 上传、拖拽排序、A4 双票 / 一票一页切换、下载合并 PDF 与导出清单
+- 新增“发票统计查重”页面，支持三票种 PDF 自动识别、重复发票标记与导出 Excel 统计报表
 - 支持本地网页运行，不做公网部署
 - 导出为重命名后的 ZIP，不直接覆盖原始文件
 - Excel 导出固定保留 `原文件名`，其余为用户勾选的票面字段列
@@ -58,11 +60,14 @@ http://127.0.0.1:5050
 - `invoice_helper/general_invoice.py`：常规数电发票解析与重命名规则
 - `invoice_helper/airline_invoice.py`：航空电子客票解析与重命名规则
 - `invoice_helper/merge_print.py`：发票合并打印任务、PDF 合并与 OFD 转 PDF
+- `invoice_helper/stats_dedup.py`：发票统计查重任务与 Excel 报表导出
 - `templates/index.html`：页面结构
 - `templates/merge_print.html`：发票合并打印页面
+- `templates/stats_dedup.html`：发票统计查重页面
 - `static/styles.css`：页面样式
 - `static/app.js`：前端交互逻辑
 - `static/merge_print.js`：发票合并打印交互逻辑
+- `static/stats_dedup.js`：发票统计查重交互逻辑
 - `tests/`：解析器、规则与 API 测试
 
 ## 测试

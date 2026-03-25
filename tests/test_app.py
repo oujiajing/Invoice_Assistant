@@ -19,13 +19,17 @@ def client(monkeypatch):
     temp_root.mkdir(exist_ok=True)
     upload_dir = temp_root / "uploads"
     upload_dir.mkdir(exist_ok=True)
+    stats_dedup_dir = temp_root / "stats_dedup"
+    stats_dedup_dir.mkdir(exist_ok=True)
     db_path = temp_root / "ledger.sqlite3"
     monkeypatch.setattr(app_module, "UPLOAD_DIR", upload_dir)
     monkeypatch.setattr(app_module, "LEDGER_DB_PATH", db_path)
+    monkeypatch.setattr(app_module, "STATS_DEDUP_DIR", stats_dedup_dir)
     init_ledger_db(db_path)
     app_module.RAILWAY_DOCUMENT_STORE.clear()
     app_module.GENERAL_DOCUMENT_STORE.clear()
     app_module.AIRLINE_DOCUMENT_STORE.clear()
+    app_module.STATS_DEDUP_TASK_STORE.clear()
     yield app_module.app.test_client()
     shutil.rmtree(temp_root, ignore_errors=True)
 
@@ -556,3 +560,133 @@ def test_merge_print_blocks_mixed_uploads(client):
     )
     assert mixed_response.status_code == 400
     assert mixed_response.get_json()["message"] == "同一次合并任务不能同时上传 PDF 和 OFD 文件。"
+
+
+def test_stats_dedup_analyze_and_export(client, monkeypatch):
+    def fake_railway_parse(file_name, file_bytes):
+        if "ticket" not in file_name:
+            raise ValueError("not railway")
+        return RailwayTicketFields(
+            invoice_number="25429165800000526150",
+            issue_date="2025-04-01",
+            departure_station="武汉站",
+            arrival_station="北京西站",
+            departure_datetime="2025-03-31 08:36",
+            amount="623.00",
+            passenger_name="李志",
+        )
+
+    def fake_airline_parse(file_name, file_bytes):
+        if "airline" not in file_name:
+            raise ValueError("not airline")
+        return AirlineInvoiceFields(
+            invoice_number="26112000001054174981",
+            issue_date="2026-03-18",
+            departure_airport="北京大兴",
+            arrival_airport="广州",
+            flight_number="JD5921",
+            amount="807.34",
+            total_amount="930.00",
+            passenger_name="李志",
+        )
+
+    def fake_general_parse(file_name, file_bytes):
+        if "hotel" not in file_name:
+            raise ValueError("not general")
+        return GeneralInvoiceFields(
+            invoice_type="电子发票（普通发票）",
+            invoice_number="25312000000002446025",
+            issue_date="2025-01-03",
+            buyer_name="广东工业大学",
+            seller_name="上海淳大酒店投资管理有限公司",
+            amount="767.58",
+            tax_amount="46.06",
+            total_amount="813.64",
+        )
+
+    monkeypatch.setattr(app_module, "parse_railway_ticket_from_bytes", fake_railway_parse)
+    monkeypatch.setattr(app_module, "parse_airline_invoice_from_bytes", fake_airline_parse)
+    monkeypatch.setattr(app_module, "parse_general_invoice_from_bytes", fake_general_parse)
+
+    upload_response = client.post(
+        "/api/stats-dedup/upload",
+        data={
+            "files": [
+                (BytesIO(b"%PDF rail"), "ticket.pdf"),
+                (BytesIO(b"%PDF rail2"), "ticket-duplicate.pdf"),
+                (BytesIO(b"%PDF airline"), "airline.pdf"),
+                (BytesIO(b"%PDF hotel"), "hotel.pdf"),
+            ]
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+    task = upload_response.get_json()
+    assert len(task["items"]) == 4
+
+    analyze_response = client.post("/api/stats-dedup/analyze", json={"taskId": task["taskId"]})
+    assert analyze_response.status_code == 200
+    payload = analyze_response.get_json()
+    assert payload["summary"]["duplicateCount"] == 1
+    assert payload["summary"]["successCount"] == 3
+    assert payload["summary"]["totalAmount"] == "2366.64"
+    statuses = {item["originalName"]: item["dedupStatus"] for item in payload["items"]}
+    assert statuses["ticket.pdf"] == "统计完成"
+    assert statuses["ticket-duplicate.pdf"] == "重复发票"
+    assert statuses["airline.pdf"] == "统计完成"
+    assert statuses["hotel.pdf"] == "统计完成"
+
+    export_response = client.post("/api/stats-dedup/export", json={"taskId": task["taskId"]})
+    assert export_response.status_code == 200
+    export_payload = export_response.get_json()
+    download_response = client.get(export_payload["downloadUrl"])
+    assert download_response.status_code == 200
+    workbook = load_workbook(BytesIO(download_response.data))
+    worksheet = workbook.active
+    headers = [cell.value for cell in worksheet[1]]
+    assert headers == [
+        "序号",
+        "文件名称",
+        "票种",
+        "发票号码",
+        "开票日期",
+        "金额",
+        "税额",
+        "价税合计",
+        "是否重复",
+        "重复组",
+        "统计状态",
+        "错误信息",
+    ]
+    assert worksheet.max_row == 5
+    assert worksheet["I3"].value == "是"
+
+
+def test_stats_dedup_rejects_non_pdf(client):
+    upload_response = client.post(
+        "/api/stats-dedup/upload",
+        data={"files": (BytesIO(b"fake ofd"), "ticket.ofd")},
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 400
+    assert upload_response.get_json()["message"] == "当前模块仅支持 PDF 发票。"
+
+
+def test_stats_dedup_parse_failure_is_preserved(client, monkeypatch):
+    monkeypatch.setattr(app_module, "parse_railway_ticket_from_bytes", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("x")))
+    monkeypatch.setattr(app_module, "parse_airline_invoice_from_bytes", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("y")))
+    monkeypatch.setattr(app_module, "parse_general_invoice_from_bytes", lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("z")))
+
+    upload_response = client.post(
+        "/api/stats-dedup/upload",
+        data={"files": (BytesIO(b"%PDF-1.4 fake"), "broken.pdf")},
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+    task = upload_response.get_json()
+
+    analyze_response = client.post("/api/stats-dedup/analyze", json={"taskId": task["taskId"]})
+    assert analyze_response.status_code == 200
+    item = analyze_response.get_json()["items"][0]
+    assert item["dedupStatus"] == "解析失败"
+    assert item["error"] == "未识别为支持统计的 PDF 发票。"

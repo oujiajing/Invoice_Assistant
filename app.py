@@ -18,14 +18,17 @@ from invoice_helper.ledger import build_ledger_entry, delete_ledger_entries, det
 from invoice_helper.merge_print import add_files_to_merge_task, build_merge_list_workbook, build_merge_print_pdf, clear_merge_task, delete_merge_item
 from invoice_helper.models import AirlineInvoiceDocument, AirlineInvoiceFields, GeneralInvoiceDocument, GeneralInvoiceFields, RailwayDocument, RailwayTicketFields, RenameRuleConfig
 from invoice_helper.railway import build_preview_name, parse_railway_ticket_from_bytes
+from invoice_helper.stats_dedup import add_files_to_stats_task, build_stats_workbook, clear_stats_task, delete_stats_item, workbook_to_bytes
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "runtime"
 UPLOAD_DIR = DATA_DIR / "uploads"
 LEDGER_DB_PATH = DATA_DIR / "ledger.sqlite3"
 MERGE_PRINT_DIR = DATA_DIR / "merge_print"
+STATS_DEDUP_DIR = DATA_DIR / "stats_dedup"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MERGE_PRINT_DIR.mkdir(parents=True, exist_ok=True)
+STATS_DEDUP_DIR.mkdir(parents=True, exist_ok=True)
 init_ledger_db(LEDGER_DB_PATH)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -33,6 +36,7 @@ RAILWAY_DOCUMENT_STORE: dict[str, RailwayDocument] = {}
 GENERAL_DOCUMENT_STORE: dict[str, GeneralInvoiceDocument] = {}
 AIRLINE_DOCUMENT_STORE: dict[str, AirlineInvoiceDocument] = {}
 MERGE_PRINT_TASK_STORE = {}
+STATS_DEDUP_TASK_STORE = {}
 
 GENERAL_FIELD_DEFINITIONS = [
     ("invoice_type", "发票类型"),
@@ -109,6 +113,11 @@ def merge_print_page():
 @app.get("/split-folder")
 def split_folder_page():
     return render_template("split_folder.html")
+
+
+@app.get("/stats-dedup")
+def stats_dedup_page():
+    return render_template("stats_dedup.html")
 
 
 @app.post("/api/merge-print/upload")
@@ -196,6 +205,162 @@ def merge_print_delete_item(task_id: str, item_id: str):
 @app.delete("/api/merge-print/task/<task_id>")
 def merge_print_clear_task(task_id: str):
     clear_merge_task(MERGE_PRINT_TASK_STORE, task_id)
+    return jsonify({"message": "文件列表已清空。"})
+
+
+@app.post("/api/stats-dedup/upload")
+def stats_dedup_upload():
+    files = request.files.getlist("files")
+    if not files:
+        raise ValueError("请至少上传一个 PDF 发票文件。")
+    task_id = request.form.get("taskId") or None
+    task = add_files_to_stats_task(
+        task_store=STATS_DEDUP_TASK_STORE,
+        task_id=task_id,
+        files=files,
+        upload_dir=UPLOAD_DIR,
+    )
+    return jsonify(task.to_dict())
+
+
+@app.post("/api/stats-dedup/analyze")
+def stats_dedup_analyze():
+    payload = request.get_json(silent=True) or {}
+    task_id = payload.get("taskId", "")
+    task = STATS_DEDUP_TASK_STORE.get(task_id)
+    if task is None or not task.items:
+        raise ValueError("未找到待统计的发票任务。")
+
+    duplicate_counters: dict[str, int] = {}
+    duplicate_groups: dict[str, str] = {}
+    group_index = 1
+    successful_unique_total = 0.0
+    success_count = 0
+    duplicate_count = 0
+    failed_count = 0
+
+    for item in task.items:
+        try:
+            category, fields = _detect_invoice_for_stats(item.original_name, Path(item.stored_path).read_bytes())
+            normalized = _normalize_stats_fields(category, fields)
+            item.invoice_category = _stats_category_label(category)
+            item.parse_status = "success"
+            item.invoice_number = normalized["invoiceNumber"]
+            item.issue_date = normalized["issueDate"]
+            item.amount = normalized["amount"]
+            item.tax_amount = normalized["taxAmount"]
+            item.total_amount = normalized["totalAmount"]
+            item.fields = normalized["fields"]
+            dedup_key = _build_stats_dedup_key(category, normalized)
+            if dedup_key:
+                duplicate_counters[dedup_key] = duplicate_counters.get(dedup_key, 0) + 1
+                group_key = duplicate_groups.setdefault(dedup_key, f"重复组{group_index}")
+                if group_key == f"重复组{group_index}":
+                    group_index += 1
+                item.duplicate_group_key = group_key
+            else:
+                item.duplicate_group_key = ""
+            item.dedup_status = "统计完成"
+            item.error = ""
+        except Exception as exc:
+            item.parse_status = "failed"
+            item.invoice_category = ""
+            item.invoice_number = ""
+            item.issue_date = ""
+            item.amount = ""
+            item.tax_amount = ""
+            item.total_amount = ""
+            item.fields = {}
+            item.duplicate_group_key = ""
+            item.dedup_status = "解析失败"
+            item.error = str(exc)
+
+    seen_dedup_keys: set[str] = set()
+    for item in task.items:
+        if item.parse_status != "success":
+            failed_count += 1
+            continue
+        dedup_key = _build_stats_dedup_key_from_item(item)
+        if dedup_key and duplicate_counters.get(dedup_key, 0) > 1:
+            if dedup_key in seen_dedup_keys:
+                item.dedup_status = "重复发票"
+                duplicate_count += 1
+                continue
+            seen_dedup_keys.add(dedup_key)
+        else:
+            item.duplicate_group_key = ""
+        success_count += 1
+        try:
+            successful_unique_total += float(item.total_amount or 0)
+        except ValueError:
+            continue
+
+    return jsonify(
+        {
+            "taskId": task.task_id,
+            "items": [item.to_dict() for item in task.items],
+            "summary": {
+                "analyzedCount": success_count + duplicate_count,
+                "successCount": success_count,
+                "duplicateCount": duplicate_count,
+                "failedCount": failed_count,
+                "totalAmount": f"{successful_unique_total:.2f}",
+            },
+        }
+    )
+
+
+@app.post("/api/stats-dedup/export")
+def stats_dedup_export():
+    payload = request.get_json(silent=True) or {}
+    task_id = payload.get("taskId", "")
+    task = STATS_DEDUP_TASK_STORE.get(task_id)
+    if task is None or not task.items:
+        raise ValueError("未找到可导出的统计任务。")
+    if not any(item.parse_status == "success" for item in task.items):
+        raise ValueError("没有可导出的成功统计记录。")
+
+    workbook = build_stats_workbook(task)
+    export_id = str(uuid.uuid4())
+    export_name = "发票统计文件.xlsx"
+    export_path = STATS_DEDUP_DIR / f"{task_id}_{export_id}.xlsx"
+    memory_file = workbook_to_bytes(workbook)
+    export_path.write_bytes(memory_file.getvalue())
+    task.latest_export_id = export_id
+    task.latest_export_path = str(export_path)
+    task.latest_export_name = export_name
+    return jsonify(
+        {
+            "taskId": task.task_id,
+            "exportId": export_id,
+            "fileName": export_name,
+            "downloadUrl": f"/api/stats-dedup/download/{task.task_id}/{export_id}",
+        }
+    )
+
+
+@app.get("/api/stats-dedup/download/<task_id>/<export_id>")
+def stats_dedup_download(task_id: str, export_id: str):
+    task = STATS_DEDUP_TASK_STORE.get(task_id)
+    if task is None or task.latest_export_id != export_id or not task.latest_export_path:
+        raise ValueError("未找到可下载的统计报表。")
+    return send_file(
+        task.latest_export_path,
+        as_attachment=True,
+        download_name=task.latest_export_name or "发票统计文件.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.delete("/api/stats-dedup/items/<task_id>/<item_id>")
+def stats_dedup_delete_item(task_id: str, item_id: str):
+    task = delete_stats_item(STATS_DEDUP_TASK_STORE, task_id, item_id)
+    return jsonify(task.to_dict())
+
+
+@app.delete("/api/stats-dedup/task/<task_id>")
+def stats_dedup_clear_task(task_id: str):
+    clear_stats_task(STATS_DEDUP_TASK_STORE, task_id)
     return jsonify({"message": "文件列表已清空。"})
 
 
@@ -944,6 +1109,113 @@ def _build_merge_stats(task, ordered_item_ids: list[str]) -> dict:
         "totalAmount": f"{total_amount:.2f}",
         "inputType": task.input_type,
     }
+
+
+def _detect_invoice_for_stats(file_name: str, file_bytes: bytes) -> tuple[str, object]:
+    for category, parser in (
+        ("railway", parse_railway_ticket_from_bytes),
+        ("airline", parse_airline_invoice_from_bytes),
+        ("general", parse_general_invoice_from_bytes),
+    ):
+        try:
+            return category, parser(file_name, file_bytes)
+        except Exception:
+            continue
+    raise ValueError("未识别为支持统计的 PDF 发票。")
+
+
+def _normalize_stats_fields(category: str, fields: object) -> dict[str, object]:
+    values = fields.to_dict()
+    if category == "railway":
+        total_amount = values.get("amount", "")
+        return {
+            "invoiceNumber": values.get("invoice_number", ""),
+            "issueDate": values.get("issue_date", ""),
+            "amount": values.get("amount", ""),
+            "taxAmount": "",
+            "totalAmount": total_amount,
+            "fields": values,
+        }
+    if category == "airline":
+        total_amount = values.get("total_amount", "") or values.get("amount", "")
+        return {
+            "invoiceNumber": values.get("invoice_number", ""),
+            "issueDate": values.get("issue_date", ""),
+            "amount": values.get("amount", ""),
+            "taxAmount": "",
+            "totalAmount": total_amount,
+            "fields": values,
+        }
+    return {
+        "invoiceNumber": values.get("invoice_number", ""),
+        "issueDate": values.get("issue_date", ""),
+        "amount": values.get("amount", ""),
+        "taxAmount": values.get("tax_amount", ""),
+        "totalAmount": values.get("total_amount", ""),
+        "fields": values,
+    }
+
+
+def _stats_category_label(category: str) -> str:
+    return {
+        "railway": "铁路电子客票",
+        "airline": "航空电子客票",
+        "general": "常规数电发票",
+    }.get(category, category)
+
+
+def _build_stats_dedup_key(category: str, normalized: dict[str, object]) -> str:
+    invoice_number = str(normalized.get("invoiceNumber", "") or "").strip()
+    if invoice_number:
+        return f"{category}:invoice:{invoice_number}"
+
+    fields = normalized.get("fields", {}) or {}
+    if category == "railway":
+        parts = [
+            fields.get("issue_date", ""),
+            fields.get("departure_station", ""),
+            fields.get("arrival_station", ""),
+            fields.get("departure_datetime", ""),
+            fields.get("amount", ""),
+            fields.get("passenger_name", ""),
+        ]
+    elif category == "airline":
+        parts = [
+            fields.get("issue_date", ""),
+            fields.get("departure_airport", ""),
+            fields.get("arrival_airport", ""),
+            fields.get("flight_number", ""),
+            fields.get("total_amount", "") or fields.get("amount", ""),
+            fields.get("passenger_name", ""),
+        ]
+    else:
+        parts = [
+            fields.get("issue_date", ""),
+            fields.get("seller_name", ""),
+            fields.get("total_amount", ""),
+            fields.get("buyer_name", ""),
+        ]
+
+    joined = "|".join(str(part or "").strip() for part in parts)
+    return f"{category}:fallback:{joined}" if joined.replace("|", "") else ""
+
+
+def _build_stats_dedup_key_from_item(item) -> str:
+    category = ""
+    if item.invoice_category == "铁路电子客票":
+        category = "railway"
+    elif item.invoice_category == "航空电子客票":
+        category = "airline"
+    elif item.invoice_category == "常规数电发票":
+        category = "general"
+    if item.invoice_number:
+        return f"{category}:invoice:{item.invoice_number}" if category else item.invoice_number
+    fields = item.fields or {}
+    normalized = {
+        "invoiceNumber": item.invoice_number,
+        "fields": fields,
+    }
+    return _build_stats_dedup_key(category, normalized)
 
 
 if __name__ == "__main__":

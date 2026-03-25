@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>发票助手 - 发票统计查重</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">￥</div>
+          <div>
+            <h1>票票帮</h1>
+            <p>发票管理好帮手</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item" href="/ledger">发票台账管理</a>
+          <a class="nav-item" href="/merge-print">发票合并打印</a>
+          <a class="nav-item nav-item-active" href="/stats-dedup">发票统计查重</a>
+          <button class="nav-item">发票格式转换</button>
+          <button class="nav-item">发票添加专用章</button>
+          <a class="nav-item" href="/split-folder">发票分文件夹</a>
+          <a class="nav-item" href="/">发票文件重命名</a>
+          <button class="nav-item">发票文件合并</button>
+          <button class="nav-item">发票文件拆分</button>
+          <button class="nav-item">发票文件对切</button>
+          <button class="nav-item">发票文件修复</button>
+        </nav>
+      </aside>
+
+      <main class="main merge-main">
+        <section class="merge-hero panel stats-hero">
+          <div class="merge-hero-banner stats-hero-banner">
+            <h2>免费在线 PDF 电子发票统计及去重</h2>
+            <p>批量上传 PDF 格式电子发票文件，系统会自动统计发票信息并标记重复发票，可导出为 Excel 表格。</p>
+          </div>
+
+          <section class="steps merge-steps stats-steps">
+            <div id="statsStepUpload" class="step active">
+              <span>1</span>
+              <strong>上传PDF发票</strong>
+            </div>
+            <div class="step-line"></div>
+            <div id="statsStepAnalyze" class="step">
+              <span>2</span>
+              <strong>统计及去重</strong>
+            </div>
+            <div class="step-line"></div>
+            <div id="statsStepDone" class="step">
+              <span>3</span>
+              <strong>下载统计报表</strong>
+            </div>
+          </section>
+
+          <section id="statsUploadPanel" class="panel merge-upload-card stats-upload-card">
+            <div id="statsDropzone" class="dropzone merge-dropzone stats-dropzone">
+              <input id="statsFileInput" type="file" multiple accept=".pdf" hidden />
+              <div class="drop-icon">📄</div>
+              <h3>点击或拖动选择 PDF 发票文件（可多选）</h3>
+              <p>支持三票种自动识别。当前模块仅支持 PDF，不支持 OFD。</p>
+              <button id="statsPickFilesBtn" class="primary-btn">选择文件</button>
+            </div>
+          </section>
+
+          <section id="statsWorkspace" class="panel stats-workspace hidden">
+            <div class="stats-table-wrap">
+              <table class="stats-table">
+                <thead>
+                  <tr>
+                    <th>序号</th>
+                    <th>文件名称</th>
+                    <th>发票号码</th>
+                    <th>开票日期</th>
+                    <th>金额</th>
+                    <th>税额</th>
+                    <th>价税合计</th>
+                    <th>统计状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="statsListBody"></tbody>
+                <tfoot id="statsTableFooter" class="hidden">
+                  <tr>
+                    <td colspan="9">
+                      <div class="stats-summary-row">
+                        <span id="statsSummaryText">共统计 0 张发票，未检测到重复发票。</span>
+                        <strong id="statsTotalAmountText">去重后合计金额： 0.00</strong>
+                      </div>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div class="stats-toolbar">
+              <div class="split-bottom-left">
+                <button id="statsAddFilesBtn" class="text-btn">添加文件</button>
+                <button id="statsClearBtn" class="text-btn" disabled>清空列表</button>
+              </div>
+              <div class="split-bottom-right">
+                <button id="statsAnalyzeBtn" class="primary-btn" disabled>开始统计发票</button>
+                <button id="statsExportBtn" class="primary-btn" disabled>生成Excel表格</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="statsDonePanel" class="panel stats-done-panel hidden">
+            <div class="stats-done-icon">✓</div>
+            <h3>生成Excel表格完成</h3>
+            <p id="statsDoneDescription">本次共统计了 0 张发票文件！</p>
+            <p id="statsDoneFilename" class="stats-done-file">发票统计文件.xlsx</p>
+            <div class="stats-done-actions">
+              <button id="statsBackBtn" class="secondary-btn">返回继续操作</button>
+              <a id="statsDownloadLink" class="primary-btn disabled-link" href="#">下载Excel表格</a>
+            </div>
+          </section>
+
+          <section class="merge-feature-grid">
+            <article class="panel merge-feature-card">
+              <strong>极速上传</strong>
+              <p>点击选择转换文件，即可极速将您的文件上传到本地服务处理。</p>
+            </article>
+            <article class="panel merge-feature-card">
+              <strong>简单操作</strong>
+              <p>只需上传文件并点击统计，即可快速得到去重后的结果报表。</p>
+            </article>
+            <article class="panel merge-feature-card">
+              <strong>云端处理</strong>
+              <p>当前为本地网页工具，统计过程不依赖外部云服务。</p>
+            </article>
+            <article class="panel merge-feature-card">
+              <strong>隐私安全</strong>
+              <p>上传文件仅存于本地运行时目录，可随时清空，不会保存到公网。</p>
+            </article>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='stats_dedup.js') }}"></script>
+  </body>
+</html>
