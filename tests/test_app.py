@@ -1,9 +1,11 @@
 from io import BytesIO
 from pathlib import Path
 import shutil
+import zipfile
 
 from openpyxl import load_workbook
 import pytest
+from pypdf import PdfReader, PdfWriter
 
 import app as app_module
 from invoice_helper.ledger import init_ledger_db
@@ -395,3 +397,90 @@ def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
     assert delete_response.status_code == 200
     after_delete = client.get("/api/ledger/list").get_json()
     assert len(after_delete) == 2
+
+
+def test_merge_print_upload_build_download_and_export_list(client):
+    pdf_buffer = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=300, height=400)
+    writer.write(pdf_buffer)
+    pdf_bytes = pdf_buffer.getvalue()
+
+    upload_response = client.post(
+        "/api/merge-print/upload",
+        data={"files": [(BytesIO(pdf_bytes), "first.pdf"), (BytesIO(pdf_bytes), "second.pdf")]},
+        content_type="multipart/form-data",
+    )
+
+    assert upload_response.status_code == 200
+    upload_payload = upload_response.get_json()
+    assert upload_payload["inputType"] == "pdf"
+    assert len(upload_payload["items"]) == 2
+
+    build_response = client.post(
+        "/api/merge-print/build",
+        json={
+            "taskId": upload_payload["taskId"],
+            "itemIds": [item["id"] for item in upload_payload["items"]],
+            "layoutMode": "double",
+            "showDivider": True,
+            "listPlacement": "omit",
+        },
+    )
+    assert build_response.status_code == 200
+    build_payload = build_response.get_json()
+    assert build_payload["pageCount"] == 1
+    assert build_payload["stats"]["invoiceCount"] == 2
+
+    preview_response = client.get(build_payload["previewUrl"])
+    assert preview_response.status_code == 200
+    assert preview_response.mimetype == "application/pdf"
+    preview_reader = PdfReader(BytesIO(preview_response.data))
+    assert len(preview_reader.pages) == 1
+    assert round(float(preview_reader.pages[0].mediabox.width), 2) == 300.0
+    assert round(float(preview_reader.pages[0].mediabox.height), 2) == 816.0
+
+    download_response = client.get(build_payload["downloadUrl"])
+    assert download_response.status_code == 200
+    assert download_response.mimetype == "application/pdf"
+
+    export_list_response = client.post(
+        "/api/merge-print/export-list",
+        json={
+            "taskId": upload_payload["taskId"],
+            "itemIds": [item["id"] for item in upload_payload["items"]],
+        },
+    )
+    assert export_list_response.status_code == 200
+    workbook = load_workbook(BytesIO(export_list_response.data))
+    worksheet = workbook.active
+    assert worksheet["A2"].value == 1
+    assert worksheet["B2"].value == "first.pdf"
+
+
+def test_merge_print_blocks_mixed_uploads(client):
+    pdf_buffer = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=300, height=400)
+    writer.write(pdf_buffer)
+    pdf_bytes = pdf_buffer.getvalue()
+
+    ofd_buffer = BytesIO()
+    with zipfile.ZipFile(ofd_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("Doc_0/Pages/Page_0/Content.xml", "<ofd><TextObject Value='测试OFD内容'/></ofd>")
+
+    first_response = client.post(
+        "/api/merge-print/upload",
+        data={"files": (BytesIO(pdf_bytes), "first.pdf")},
+        content_type="multipart/form-data",
+    )
+    assert first_response.status_code == 200
+    task_id = first_response.get_json()["taskId"]
+
+    mixed_response = client.post(
+        "/api/merge-print/upload",
+        data={"taskId": task_id, "files": (BytesIO(ofd_buffer.getvalue()), "second.ofd")},
+        content_type="multipart/form-data",
+    )
+    assert mixed_response.status_code == 400
+    assert mixed_response.get_json()["message"] == "同一次合并任务不能同时上传 PDF 和 OFD 文件。"

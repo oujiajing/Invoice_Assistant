@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from invoice_helper.airline_invoice import build_airline_invoice_preview_name, parse_airline_invoice_from_bytes
 from invoice_helper.general_invoice import apply_duplicate_strategy, build_general_invoice_preview_name, parse_general_invoice_from_bytes
 from invoice_helper.ledger import build_ledger_entry, delete_ledger_entries, detect_invoice_for_ledger, get_ledger_entry, init_ledger_db, insert_ledger_entry, list_ledger_entries
+from invoice_helper.merge_print import add_files_to_merge_task, build_merge_list_workbook, build_merge_print_pdf, clear_merge_task, delete_merge_item
 from invoice_helper.models import AirlineInvoiceDocument, AirlineInvoiceFields, GeneralInvoiceDocument, GeneralInvoiceFields, RailwayDocument, RailwayTicketFields, RenameRuleConfig
 from invoice_helper.railway import build_preview_name, parse_railway_ticket_from_bytes
 
@@ -21,13 +22,16 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "runtime"
 UPLOAD_DIR = DATA_DIR / "uploads"
 LEDGER_DB_PATH = DATA_DIR / "ledger.sqlite3"
+MERGE_PRINT_DIR = DATA_DIR / "merge_print"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+MERGE_PRINT_DIR.mkdir(parents=True, exist_ok=True)
 init_ledger_db(LEDGER_DB_PATH)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 RAILWAY_DOCUMENT_STORE: dict[str, RailwayDocument] = {}
 GENERAL_DOCUMENT_STORE: dict[str, GeneralInvoiceDocument] = {}
 AIRLINE_DOCUMENT_STORE: dict[str, AirlineInvoiceDocument] = {}
+MERGE_PRINT_TASK_STORE = {}
 
 GENERAL_FIELD_DEFINITIONS = [
     ("invoice_type", "发票类型"),
@@ -92,6 +96,99 @@ def index():
 @app.get("/ledger")
 def ledger_page():
     return render_template("ledger.html")
+
+
+@app.get("/merge-print")
+def merge_print_page():
+    return render_template("merge_print.html")
+
+
+@app.post("/api/merge-print/upload")
+def merge_print_upload():
+    files = request.files.getlist("files")
+    if not files:
+        raise ValueError("请至少上传一个 PDF 或 OFD 文件。")
+    task_id = request.form.get("taskId") or None
+    task = add_files_to_merge_task(
+        task_store=MERGE_PRINT_TASK_STORE,
+        task_id=task_id,
+        files=files,
+        upload_dir=UPLOAD_DIR,
+    )
+    return jsonify(task.to_dict())
+
+
+@app.post("/api/merge-print/build")
+def merge_print_build():
+    payload = request.get_json(silent=True) or {}
+    build = build_merge_print_pdf(
+        task_store=MERGE_PRINT_TASK_STORE,
+        task_id=payload.get("taskId", ""),
+        ordered_item_ids=payload.get("itemIds", []),
+        layout_mode=payload.get("layoutMode", "double"),
+        show_divider=payload.get("showDivider", True),
+        list_placement=payload.get("listPlacement", "append"),
+        output_dir=MERGE_PRINT_DIR,
+    )
+    task = MERGE_PRINT_TASK_STORE[payload.get("taskId", "")]
+    stats = _build_merge_stats(task, payload.get("itemIds", []))
+    return jsonify(
+        {
+            "taskId": build["taskId"],
+            "buildId": build["buildId"],
+            "pageCount": build["pageCount"],
+            "previewUrl": f"/api/merge-print/preview/{build['taskId']}/{build['buildId']}",
+            "downloadUrl": f"/api/merge-print/download/{build['taskId']}/{build['buildId']}",
+            "stats": stats,
+        }
+    )
+
+
+@app.get("/api/merge-print/preview/<task_id>/<build_id>")
+def merge_print_preview(task_id: str, build_id: str):
+    task = MERGE_PRINT_TASK_STORE.get(task_id)
+    if task is None or task.latest_build_id != build_id or not task.latest_build_path:
+        raise ValueError("未找到可预览的合并文件。")
+    return send_file(task.latest_build_path, mimetype="application/pdf")
+
+
+@app.get("/api/merge-print/download/<task_id>/<build_id>")
+def merge_print_download(task_id: str, build_id: str):
+    task = MERGE_PRINT_TASK_STORE.get(task_id)
+    if task is None or task.latest_build_id != build_id or not task.latest_build_path:
+        raise ValueError("未找到可下载的合并文件。")
+    return send_file(task.latest_build_path, as_attachment=True, download_name=f"发票合并打印_{build_id}.pdf")
+
+
+@app.post("/api/merge-print/export-list")
+def merge_print_export_list():
+    payload = request.get_json(silent=True) or {}
+    workbook = build_merge_list_workbook(
+        MERGE_PRINT_TASK_STORE,
+        payload.get("taskId", ""),
+        payload.get("itemIds", []),
+    )
+    memory_file = io.BytesIO()
+    workbook.save(memory_file)
+    memory_file.seek(0)
+    return send_file(
+        memory_file,
+        as_attachment=True,
+        download_name="发票合并打印清单.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.delete("/api/merge-print/items/<task_id>/<item_id>")
+def merge_print_delete_item(task_id: str, item_id: str):
+    task = delete_merge_item(MERGE_PRINT_TASK_STORE, task_id, item_id)
+    return jsonify(task.to_dict())
+
+
+@app.delete("/api/merge-print/task/<task_id>")
+def merge_print_clear_task(task_id: str):
+    clear_merge_task(MERGE_PRINT_TASK_STORE, task_id)
+    return jsonify({"message": "文件列表已清空。"})
 
 
 @app.post("/api/railway/upload-and-parse")
@@ -573,6 +670,23 @@ def _ledger_detail_payload(entry: dict) -> dict:
         "infoItems": base_items,
         "extendedItems": extended_items,
         "fields": fields,
+    }
+
+
+def _build_merge_stats(task, ordered_item_ids: list[str]) -> dict:
+    item_map = {item.item_id: item for item in task.items}
+    ordered_items = [item_map[item_id] for item_id in ordered_item_ids if item_id in item_map] or task.items
+    total_amount = 0.0
+    for item in ordered_items:
+        try:
+            total_amount += float(item.amount or 0)
+        except ValueError:
+            continue
+    return {
+        "fileCount": len(ordered_items),
+        "invoiceCount": sum(item.invoice_count for item in ordered_items),
+        "totalAmount": f"{total_amount:.2f}",
+        "inputType": task.input_type,
     }
 
 

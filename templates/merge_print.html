@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>发票助手 - 发票合并打印</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">￥</div>
+          <div>
+            <h1>票票帮</h1>
+            <p>发票管理好帮手</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item" href="/ledger">发票台账管理</a>
+          <a class="nav-item nav-item-active" href="/merge-print">发票合并打印</a>
+          <button class="nav-item">发票统计查重</button>
+          <button class="nav-item">发票格式转换</button>
+          <button class="nav-item">发票添加专用章</button>
+          <button class="nav-item">发票分文件夹</button>
+          <a class="nav-item" href="/">发票文件重命名</a>
+          <button class="nav-item">发票文件合并</button>
+          <button class="nav-item">发票文件拆分</button>
+          <button class="nav-item">发票文件对切</button>
+          <button class="nav-item">发票文件修复</button>
+        </nav>
+      </aside>
+
+      <main class="main merge-main">
+        <section id="mergeIntro" class="merge-hero panel">
+          <div class="merge-hero-banner">
+            <h2>免费在线发票文件合并打印</h2>
+            <p>支持 PDF / OFD 发票批量上传，按指定顺序合并为一个可下载、可打印的 PDF 文件。</p>
+          </div>
+
+          <section class="steps merge-steps">
+            <div class="step active">
+              <span>1</span>
+              <strong>上传发票文件</strong>
+            </div>
+            <div class="step-line"></div>
+            <div class="step">
+              <span>2</span>
+              <strong>合并发票文件</strong>
+            </div>
+            <div class="step-line"></div>
+            <div class="step">
+              <span>3</span>
+              <strong>下载发票文件</strong>
+            </div>
+          </section>
+
+          <section class="panel merge-upload-card">
+            <div id="mergeDropzone" class="dropzone merge-dropzone">
+              <input id="mergeFileInput" type="file" multiple accept=".pdf,.ofd" hidden />
+              <div class="drop-icon">📄</div>
+              <h3>点击或拖动选择 PDF / OFD 格式发票文件</h3>
+              <p>本期禁止混合上传 PDF 和 OFD。同一次任务只处理一种格式。</p>
+              <button id="mergePickFilesBtn" class="primary-btn">选择文件</button>
+            </div>
+          </section>
+
+          <section class="merge-feature-grid">
+            <article class="panel merge-feature-card">
+              <strong>一键打印</strong>
+              <p>多张发票一次排版，下载后直接打印。</p>
+            </article>
+            <article class="panel merge-feature-card">
+              <strong>智能合并</strong>
+              <p>支持 A4 双票布局与一票一页切换。</p>
+            </article>
+            <article class="panel merge-feature-card">
+              <strong>数据导出</strong>
+              <p>下载发票清单，方便后续 Excel 管理。</p>
+            </article>
+            <article class="panel merge-feature-card">
+              <strong>批量处理</strong>
+              <p>支持拖拽排序、删除和清空，一次处理一组文件。</p>
+            </article>
+          </section>
+        </section>
+
+        <section id="mergeWorkspace" class="merge-workspace hidden">
+          <div class="merge-workspace-grid">
+            <section class="panel merge-preview-panel">
+              <div class="merge-preview-header">
+                <div>
+                  <h3>合并预览</h3>
+                  <span id="mergePageCountText">共 0 页</span>
+                </div>
+                <div class="merge-preview-actions">
+                  <button id="mergeZoomOutBtn" class="secondary-btn">-</button>
+                  <button id="mergeZoomLabelBtn" class="secondary-btn" disabled>适应</button>
+                  <button id="mergeZoomInBtn" class="secondary-btn">+</button>
+                  <button id="mergeFitBtn" class="secondary-btn">适应</button>
+                  <a id="mergeDownloadBtn" class="primary-btn disabled-link" href="#">下载</a>
+                  <button id="mergePrintBtn" class="secondary-btn">打印</button>
+                </div>
+              </div>
+              <div class="merge-preview-shell">
+                <iframe id="mergePreviewFrame" class="merge-preview-frame" title="合并预览"></iframe>
+              </div>
+            </section>
+
+            <aside class="merge-sidebar">
+              <section class="panel merge-side-card">
+                <div class="panel-header">
+                  <h3>添加发票文件</h3>
+                </div>
+                <div id="mergeSideDropzone" class="dropzone merge-side-dropzone">
+                  <div class="drop-icon">📄</div>
+                  <p>把发票文件拖进来这里<br />或点击选择文件（支持多选）</p>
+                  <button id="mergePickMoreBtn" class="secondary-btn">继续添加</button>
+                </div>
+
+                <div class="merge-uploaded-header">
+                  <h4>上传的文件</h4>
+                  <div class="toolbar-actions">
+                    <span id="mergeFileCountBadge" class="badge">0</span>
+                    <button id="mergeClearBtn" class="secondary-btn">清空</button>
+                  </div>
+                </div>
+                <div id="mergeList" class="merge-file-list"></div>
+
+                <div class="merge-option-block">
+                  <h4>布局模式</h4>
+                  <label><input class="merge-layout-mode" type="radio" name="mergeLayoutMode" value="double" checked /> 自动 A4 双票</label>
+                  <label><input class="merge-layout-mode" type="radio" name="mergeLayoutMode" value="single" /> 一票一页</label>
+                </div>
+
+                <div class="merge-option-block">
+                  <label class="merge-checkbox">
+                    <input id="mergeDividerCheckbox" type="checkbox" checked />
+                    <span>分割线</span>
+                  </label>
+                  <p class="merge-hint">A4 双票布局下，增加裁剪参考线。</p>
+                </div>
+
+                <div class="merge-option-block">
+                  <h4>清单位置</h4>
+                  <label><input class="merge-list-placement" type="radio" name="mergeListPlacement" value="append" checked /> 清单放最后</label>
+                  <label><input class="merge-list-placement" type="radio" name="mergeListPlacement" value="prepend" /> 原地输出</label>
+                  <label><input class="merge-list-placement" type="radio" name="mergeListPlacement" value="omit" /> 抛弃清单</label>
+                </div>
+              </section>
+
+              <section class="panel merge-side-card">
+                <div class="panel-header">
+                  <h3>发票统计</h3>
+                  <button id="mergeExportListBtn" class="secondary-btn">下载列表</button>
+                </div>
+                <div class="merge-stats">
+                  <div><span>发票数量：</span><strong id="mergeInvoiceCountText">0 张</strong></div>
+                  <div><span>总金额：</span><strong id="mergeAmountText">¥0.00</strong></div>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='merge_print.js') }}"></script>
+  </body>
+</html>

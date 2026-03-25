@@ -1124,6 +1124,265 @@ thead th {
   line-height: 1.6;
 }
 
+.merge-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.merge-hero {
+  overflow: hidden;
+  padding: 0;
+}
+
+.merge-hero-banner {
+  padding: 40px 48px;
+  color: #fff;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.18), transparent 28%),
+    linear-gradient(135deg, #a83763 0%, #c4539e 45%, #df7fc7 100%);
+  text-align: center;
+}
+
+.merge-hero-banner h2 {
+  margin: 0 0 12px;
+  font-size: 42px;
+}
+
+.merge-hero-banner p {
+  margin: 0;
+  font-size: 16px;
+  opacity: 0.92;
+}
+
+.merge-steps {
+  margin: 0;
+  padding: 24px 48px 0;
+}
+
+.merge-upload-card {
+  margin: 28px 48px 36px;
+  padding: 28px;
+}
+
+.merge-dropzone {
+  min-height: 320px;
+}
+
+.merge-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  padding: 0 48px 42px;
+}
+
+.merge-feature-card {
+  padding: 24px;
+}
+
+.merge-feature-card strong {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--accent);
+}
+
+.merge-feature-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.merge-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) 400px;
+  gap: 22px;
+  align-items: start;
+}
+
+.merge-preview-panel,
+.merge-side-card {
+  padding: 22px;
+}
+
+.merge-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.merge-preview-header h3,
+.merge-preview-header span {
+  margin: 0;
+}
+
+.merge-preview-header span {
+  color: var(--muted);
+}
+
+.merge-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.merge-preview-shell {
+  background: linear-gradient(180deg, #f3f6fb, #ebf1f8);
+  border: 1px solid #e0e7f0;
+  border-radius: 20px;
+  padding: 18px;
+  min-height: 980px;
+}
+
+.merge-preview-frame {
+  width: 100%;
+  min-height: 940px;
+  border: 1px solid #e0e6ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.merge-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.merge-side-dropzone {
+  padding: 28px 20px;
+  min-height: auto;
+  margin-bottom: 22px;
+}
+
+.merge-uploaded-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.merge-uploaded-header h4 {
+  margin: 0;
+}
+
+.merge-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 380px;
+  overflow: auto;
+}
+
+.merge-file-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #e7edf4;
+  background: #fbfdff;
+}
+
+.merge-file-item.dragging {
+  opacity: 0.55;
+}
+
+.merge-file-handle {
+  color: #8ea0b8;
+  cursor: grab;
+  user-select: none;
+}
+
+.merge-file-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.merge-file-meta strong,
+.merge-file-meta span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.merge-file-meta span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.merge-file-status {
+  color: #1aa46f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.merge-file-delete {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(217, 74, 74, 0.1);
+  color: var(--danger);
+}
+
+.merge-option-block {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #edf1f5;
+  display: grid;
+  gap: 10px;
+}
+
+.merge-option-block h4,
+.merge-option-block p {
+  margin: 0;
+}
+
+.merge-option-block label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.merge-checkbox {
+  font-weight: 700;
+}
+
+.merge-hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.merge-stats {
+  display: grid;
+  gap: 18px;
+}
+
+.merge-stats div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.merge-stats span {
+  color: var(--muted);
+}
+
+.merge-stats strong {
+  color: var(--accent);
+  font-size: 28px;
+}
+
+.disabled-link {
+  pointer-events: none;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;
@@ -1162,6 +1421,41 @@ thead th {
   .ledger-content,
   .ledger-detail-layout {
     grid-template-columns: 1fr;
+  }
+
+  .merge-hero-banner {
+    padding: 28px 20px;
+  }
+
+  .merge-hero-banner h2 {
+    font-size: 30px;
+  }
+
+  .merge-steps,
+  .merge-upload-card,
+  .merge-feature-grid {
+    padding-left: 20px;
+    padding-right: 20px;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .merge-feature-grid,
+  .merge-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .merge-preview-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .merge-preview-shell {
+    min-height: 720px;
+  }
+
+  .merge-preview-frame {
+    min-height: 680px;
   }
 
   .ledger-filter-panel {
