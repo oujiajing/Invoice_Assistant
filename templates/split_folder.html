@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>发票助手 - 发票分文件夹</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">￥</div>
+          <div>
+            <h1>票票帮</h1>
+            <p>发票管理好帮手</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item" href="/ledger">发票台账管理</a>
+          <a class="nav-item" href="/merge-print">发票合并打印</a>
+          <button class="nav-item">发票统计查重</button>
+          <button class="nav-item">发票格式转换</button>
+          <button class="nav-item">发票添加专用章</button>
+          <a class="nav-item nav-item-active" href="/split-folder">发票分文件夹</a>
+          <div class="nav-sub-group nav-sub-group-split">
+            <button class="nav-sub-item nav-sub-item-active" data-invoice-type="general">常规数电发票</button>
+            <button class="nav-sub-item" data-invoice-type="railway">铁路电子客票</button>
+            <button class="nav-sub-item" data-invoice-type="airline">航空电子客票</button>
+          </div>
+          <a class="nav-item" href="/">发票文件重命名</a>
+          <button class="nav-item">发票文件合并</button>
+          <button class="nav-item">发票文件拆分</button>
+          <button class="nav-item">发票文件对切</button>
+          <button class="nav-item">发票文件修复</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <div class="hero-chip" id="splitHeroChip">常规数电发票</div>
+          <h2 id="splitHeroTitle">免费在线 PDF / OFD 格式常规数电发票划分文件夹</h2>
+          <p id="splitHeroDescription">批量上传常规数电发票文件，按票面字段自由组合划分文件夹，并导出带目录结构的压缩包。</p>
+        </section>
+
+        <section class="steps">
+          <div class="step active">
+            <span>1</span>
+            <strong>上传发票文件</strong>
+          </div>
+          <div class="step-line"></div>
+          <div class="step">
+            <span>2</span>
+            <strong>设置划分规则</strong>
+          </div>
+          <div class="step-line"></div>
+          <div class="step">
+            <span>3</span>
+            <strong>下载划分发票</strong>
+          </div>
+        </section>
+
+        <section class="panel upload-panel">
+          <div id="splitDropzone" class="dropzone">
+            <input id="splitFileInput" type="file" multiple accept=".pdf,.ofd" hidden />
+            <div class="drop-icon">📁</div>
+            <h3 id="splitUploadTitle">点击或拖拽上传 PDF / OFD 格式常规数电发票文件</h3>
+            <p id="splitUploadDescription">支持多选批量上传，上传后先进入文件列表，再手动开始划分。</p>
+            <button id="splitPickFilesBtn" class="primary-btn">选择文件</button>
+          </div>
+        </section>
+
+        <section class="panel split-list-panel">
+          <div class="panel-header">
+            <h3>待划分文件</h3>
+            <span id="splitListBadge" class="badge">等待上传</span>
+          </div>
+
+          <div class="split-list-wrap">
+            <table class="split-table">
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>发票文件</th>
+                  <th>划分状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="splitListBody">
+                <tr class="empty-row">
+                  <td colspan="4">上传 PDF / OFD 文件后，这里会显示待划分文件列表。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="split-bottom-bar">
+            <div class="split-bottom-left">
+              <button id="splitAddFilesBtn" class="text-btn">添加文件</button>
+              <button id="splitClearBtn" class="text-btn" disabled>清空列表</button>
+            </div>
+            <div class="split-bottom-right">
+              <span class="split-rule-status">划分规则：<button id="splitConfigureRuleBtn" class="link-btn" disabled>未设置</button></span>
+              <button id="splitPreviewBtn" class="secondary-btn" disabled>开始划分</button>
+              <button id="splitDownloadBtn" class="primary-btn" disabled>下载划分发票</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="splitRuleModal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-card split-modal-card">
+        <div class="modal-header">
+          <div>
+            <h3>自定义分文件夹规则</h3>
+            <p>支持拖拽排序、自定义文本和路径预览。</p>
+          </div>
+          <button id="splitCloseRuleBtn" class="icon-btn">×</button>
+        </div>
+
+        <div class="mode-switch split-mode-switch">
+          <button class="mode-btn mode-btn-active" data-split-mode="tokens">勾选拼接</button>
+          <button class="mode-btn" data-split-mode="template">模板输入</button>
+        </div>
+
+        <div class="modal-content split-modal-content">
+          <div class="field-pool">
+            <h4>可用字段</h4>
+            <div id="splitFieldPool" class="field-list"></div>
+
+            <div class="custom-text-box">
+              <label for="splitCustomTextInput">插入固定文字</label>
+              <div class="inline-row">
+                <input id="splitCustomTextInput" type="text" placeholder="例如：差旅报销" />
+                <button id="splitAddCustomTextBtn" class="secondary-btn">添加</button>
+              </div>
+            </div>
+
+            <div class="format-box">
+              <label for="splitSeparatorInput">分隔符</label>
+              <input id="splitSeparatorInput" type="text" value="/" maxlength="3" />
+
+              <label for="splitDateFormatSelect">日期格式</label>
+              <select id="splitDateFormatSelect">
+                <option value="YYYY年MM月DD日">2025年03月31日</option>
+                <option value="YYYY-MM-DD">2025-03-31</option>
+              </select>
+
+              <label for="splitAmountFormatSelect">金额格式</label>
+              <select id="splitAmountFormatSelect">
+                <option value="0.00">123.00</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="rule-builder split-rule-builder" id="splitTokensPanel">
+            <h4>已选规则项</h4>
+            <div id="splitTokenList" class="token-list empty">
+              <div class="empty-builder">勾选左侧字段或添加固定文字</div>
+            </div>
+          </div>
+
+          <div class="rule-builder split-rule-builder hidden" id="splitTemplatePanel">
+            <h4>模板规则</h4>
+            <textarea id="splitTemplateInput" rows="8"></textarea>
+            <p class="template-hint" id="splitTemplateHint"></p>
+          </div>
+        </div>
+
+        <div class="preview-box split-preview-box">
+          <div class="split-preview-meta">
+            <span>划分后的文件夹路径预览</span>
+            <label class="split-prefix-toggle"><input id="splitShowPrefixCheckbox" type="checkbox" /> 显示项目前缀</label>
+          </div>
+          <strong id="splitModalPreview">暂无示例</strong>
+        </div>
+
+        <div class="modal-actions">
+          <button id="splitCancelRuleBtn" class="secondary-btn">取消</button>
+          <button id="splitSaveRuleBtn" class="primary-btn">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='split_folder.js') }}"></script>
+  </body>
+</html>

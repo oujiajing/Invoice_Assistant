@@ -150,6 +150,7 @@ class RenameRuleConfig:
     amount_format: str = "0.00"
     sanitize: bool = True
     duplicate_strategy: str = "suffix"
+    show_item_prefix: bool = False
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> "RenameRuleConfig":
@@ -167,6 +168,7 @@ class RenameRuleConfig:
             amount_format=payload.get("amountFormat", "0.00"),
             sanitize=payload.get("sanitize", True),
             duplicate_strategy=payload.get("duplicateStrategy", "suffix"),
+            show_item_prefix=payload.get("showItemPrefix", False),
         )
 
 

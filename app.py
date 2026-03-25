@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import uuid
 import zipfile
 from pathlib import Path
@@ -82,6 +83,8 @@ AIRLINE_FIELD_DEFINITIONS = [
     ("custom_content", "自定义内容"),
 ]
 
+INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
 
 @app.errorhandler(ValueError)
 def handle_value_error(error):
@@ -101,6 +104,11 @@ def ledger_page():
 @app.get("/merge-print")
 def merge_print_page():
     return render_template("merge_print.html")
+
+
+@app.get("/split-folder")
+def split_folder_page():
+    return render_template("split_folder.html")
 
 
 @app.post("/api/merge-print/upload")
@@ -257,6 +265,39 @@ def airline_preview_rename():
     )
 
 
+@app.post("/api/railway/preview-split-folder")
+def railway_preview_split_folder():
+    return jsonify(
+        _preview_split_folder(
+            store=RAILWAY_DOCUMENT_STORE,
+            preview_builder=build_preview_name,
+            field_definitions=RAILWAY_FIELD_DEFINITIONS,
+        )
+    )
+
+
+@app.post("/api/general-invoice/preview-split-folder")
+def general_preview_split_folder():
+    return jsonify(
+        _preview_split_folder(
+            store=GENERAL_DOCUMENT_STORE,
+            preview_builder=build_general_invoice_preview_name,
+            field_definitions=GENERAL_FIELD_DEFINITIONS,
+        )
+    )
+
+
+@app.post("/api/airline/preview-split-folder")
+def airline_preview_split_folder():
+    return jsonify(
+        _preview_split_folder(
+            store=AIRLINE_DOCUMENT_STORE,
+            preview_builder=build_airline_invoice_preview_name,
+            field_definitions=AIRLINE_FIELD_DEFINITIONS,
+        )
+    )
+
+
 @app.post("/api/railway/export")
 def railway_export():
     return _export_documents(
@@ -281,6 +322,36 @@ def airline_export():
         store=AIRLINE_DOCUMENT_STORE,
         preview_builder=build_airline_invoice_preview_name,
         download_name="航空电子客票重命名结果.zip",
+    )
+
+
+@app.post("/api/railway/export-split-folder")
+def railway_export_split_folder():
+    return _export_split_folder(
+        store=RAILWAY_DOCUMENT_STORE,
+        preview_builder=build_preview_name,
+        field_definitions=RAILWAY_FIELD_DEFINITIONS,
+        download_name="铁路电子客票划分文件夹结果.zip",
+    )
+
+
+@app.post("/api/general-invoice/export-split-folder")
+def general_export_split_folder():
+    return _export_split_folder(
+        store=GENERAL_DOCUMENT_STORE,
+        preview_builder=build_general_invoice_preview_name,
+        field_definitions=GENERAL_FIELD_DEFINITIONS,
+        download_name="常规数电发票划分文件夹结果.zip",
+    )
+
+
+@app.post("/api/airline/export-split-folder")
+def airline_export_split_folder():
+    return _export_split_folder(
+        store=AIRLINE_DOCUMENT_STORE,
+        preview_builder=build_airline_invoice_preview_name,
+        field_definitions=AIRLINE_FIELD_DEFINITIONS,
+        download_name="航空电子客票划分文件夹结果.zip",
     )
 
 
@@ -507,6 +578,53 @@ def _preview_rename(*, store: dict, preview_builder: Callable[[object, RenameRul
     return response
 
 
+def _preview_split_folder(
+    *,
+    store: dict,
+    preview_builder: Callable[[object, RenameRuleConfig], str],
+    field_definitions: list[tuple[str, str]],
+) -> list[dict]:
+    payload = request.get_json(silent=True) or {}
+    document_ids = payload.get("documentIds", [])
+    rule = RenameRuleConfig.from_dict(payload.get("ruleConfig"))
+    documents = _collect_documents(document_ids, store)
+
+    raw_outputs: list[dict[str, str]] = []
+    for doc in documents:
+        if doc.parse_status != "success":
+            raw_outputs.append({"folderPath": "", "newFileName": "", "fullOutputPath": ""})
+            continue
+        folder_path, new_file_name, full_output_path = _build_split_output_path(
+            fields=doc.fields,
+            rule=rule,
+            preview_builder=preview_builder,
+            field_definitions=field_definitions,
+            extension=Path(doc.original_name).suffix.lower(),
+        )
+        raw_outputs.append(
+            {
+                "folderPath": folder_path,
+                "newFileName": new_file_name,
+                "fullOutputPath": full_output_path,
+            }
+        )
+
+    resolved_paths = _apply_split_duplicate_strategy([item["fullOutputPath"] for item in raw_outputs])
+    response = []
+    for doc, output, resolved_path in zip(documents, raw_outputs, resolved_paths):
+        response.append(
+            {
+                "id": doc.document_id,
+                "folderPath": output["folderPath"] if doc.parse_status == "success" else "",
+                "newFileName": output["newFileName"] if doc.parse_status == "success" else "",
+                "fullOutputPath": resolved_path if doc.parse_status == "success" else "",
+                "status": doc.parse_status,
+                "error": doc.error,
+            }
+        )
+    return response
+
+
 def _export_documents(*, store: dict, preview_builder: Callable[[object, RenameRuleConfig], str], download_name: str):
     payload = request.get_json(silent=True) or {}
     document_ids = payload.get("documentIds", [])
@@ -524,6 +642,43 @@ def _export_documents(*, store: dict, preview_builder: Callable[[object, RenameR
         for doc, final_name in zip(success_docs, resolved_names):
             original_path = Path(doc.stored_path)
             archive.writestr(f"{final_name}{original_path.suffix.lower()}", original_path.read_bytes())
+
+    memory_file.seek(0)
+    return send_file(memory_file, as_attachment=True, download_name=download_name, mimetype="application/zip")
+
+
+def _export_split_folder(
+    *,
+    store: dict,
+    preview_builder: Callable[[object, RenameRuleConfig], str],
+    field_definitions: list[tuple[str, str]],
+    download_name: str,
+):
+    payload = request.get_json(silent=True) or {}
+    document_ids = payload.get("documentIds", [])
+    rule = RenameRuleConfig.from_dict(payload.get("ruleConfig"))
+    documents = _collect_documents(document_ids, store)
+    success_docs = [doc for doc in documents if doc.parse_status == "success"]
+    if not success_docs:
+        raise ValueError("没有可导出的成功解析文件。")
+
+    raw_paths: list[str] = []
+    for doc in success_docs:
+        _folder_path, _new_file_name, full_output_path = _build_split_output_path(
+            fields=doc.fields,
+            rule=rule,
+            preview_builder=preview_builder,
+            field_definitions=field_definitions,
+            extension=Path(doc.original_name).suffix.lower(),
+        )
+        raw_paths.append(full_output_path)
+
+    resolved_paths = _apply_split_duplicate_strategy(raw_paths)
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for doc, archive_path in zip(success_docs, resolved_paths):
+            original_path = Path(doc.stored_path)
+            archive.writestr(archive_path, original_path.read_bytes())
 
     memory_file.seek(0)
     return send_file(memory_file, as_attachment=True, download_name=download_name, mimetype="application/zip")
@@ -598,6 +753,107 @@ def _resolve_excel_columns(selected_columns: list[str], field_definitions: list[
     if not selected_columns:
         return allowed_keys
     return [key for key in allowed_keys if key in selected_columns]
+
+
+def _build_split_output_path(
+    *,
+    fields,
+    rule: RenameRuleConfig,
+    preview_builder: Callable[[object, RenameRuleConfig], str],
+    field_definitions: list[tuple[str, str]],
+    extension: str,
+) -> tuple[str, str, str]:
+    label_map = dict(field_definitions)
+    value_map = _build_rule_value_map(fields, rule, field_definitions)
+    filename_base = _sanitize_path_part(preview_builder(fields, rule)) or "未命名发票"
+    extension = extension or ""
+
+    if rule.mode == "template":
+        rendered = _render_split_template(rule.template, value_map)
+        segments = [_sanitize_path_part(part) for part in rendered.split("/") if _sanitize_path_part(part)]
+    else:
+        segments = []
+        for token in rule.tokens:
+            if token.type == "text":
+                part = token.value.strip()
+            else:
+                raw_value = str(value_map.get(token.value, "") or "").strip()
+                if rule.show_item_prefix and raw_value:
+                    part = f"{label_map.get(token.value, token.value)}_{raw_value}"
+                else:
+                    part = raw_value
+            sanitized = _sanitize_path_part(part)
+            if sanitized:
+                segments.append(sanitized)
+
+    folder_path = "/".join(segments)
+    full_output_path = f"{folder_path}/{filename_base}{extension}" if folder_path else f"{filename_base}{extension}"
+    return folder_path, f"{filename_base}{extension}", full_output_path
+
+
+def _apply_split_duplicate_strategy(paths: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    resolved: list[str] = []
+    for path in paths:
+        if not path:
+            resolved.append("")
+            continue
+        path_obj = Path(path)
+        parent = str(path_obj.parent).replace("\\", "/")
+        stem = path_obj.stem
+        suffix = path_obj.suffix
+        key = f"{parent}/{stem}{suffix}"
+        count = seen.get(key, 0)
+        seen[key] = count + 1
+        if count == 0:
+            resolved.append(path.replace("\\", "/"))
+            continue
+        duplicate_name = f"{stem}({count}){suffix}"
+        resolved.append(f"{parent}/{duplicate_name}".lstrip("./").replace("\\", "/") if parent not in {".", ""} else duplicate_name)
+    return resolved
+
+
+def _sanitize_path_part(value: str) -> str:
+    cleaned = INVALID_PATH_CHARS_RE.sub("_", str(value or "")).strip().strip(".")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
+def _render_split_template(template: str, value_map: dict[str, str]) -> str:
+    return re.sub(r"\{([^}]+)\}", lambda match: value_map.get(match.group(1), ""), template or "")
+
+
+def _build_rule_value_map(fields, rule: RenameRuleConfig, field_definitions: list[tuple[str, str]]) -> dict[str, str]:
+    raw_values = fields.to_dict()
+    label_map = dict(field_definitions)
+    value_map: dict[str, str] = {}
+    for key, label in label_map.items():
+        formatted = _format_rule_value(raw_values.get(key, ""), key, rule)
+        value_map[key] = formatted
+        value_map[label] = formatted
+    return value_map
+
+
+def _format_rule_value(value: str, key: str, rule: RenameRuleConfig) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "date" in key or "datetime" in key or "time" in key:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?", text):
+            date_part, _, time_part = text.partition(" ")
+            year, month, day = date_part.split("-")
+            formatted_date = (
+                f"{year}年{month}月{day}日"
+                if rule.date_format == "YYYY年MM月DD日"
+                else f"{year}-{month}-{day}"
+            )
+            return f"{formatted_date} {time_part}".strip() if time_part else formatted_date
+    if key in {"amount", "tax_amount", "total_amount"}:
+        try:
+            return f"{float(text):.2f}"
+        except ValueError:
+            return text
+    return text
 
 
 def _split_query_values(value: str) -> list[str]:

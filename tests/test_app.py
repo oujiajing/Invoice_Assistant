@@ -295,6 +295,78 @@ def test_export_excel_requires_successful_documents(client):
     assert excel_response.get_json()["message"] == "没有可导出的成功解析票据。"
 
 
+def test_split_folder_preview_and_export_flow(client, monkeypatch):
+    def fake_parse(file_name, file_bytes):
+        return RailwayTicketFields(
+            invoice_number="25429165800000526150",
+            issue_date="2025-04-01",
+            departure_station="武汉站",
+            arrival_station="北京西站",
+            departure_datetime="2025-03-31 08:36",
+            train_number="G70",
+            seat_number="08车05B号",
+            amount="623.00",
+            passenger_name="李志",
+        )
+
+    monkeypatch.setattr(app_module, "parse_railway_ticket_from_bytes", fake_parse)
+
+    upload_response = client.post(
+        "/api/railway/upload-and-parse",
+        data={"files": (BytesIO(b"%PDF-1.4 fake"), "ticket.pdf")},
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+    document = upload_response.get_json()[0]
+
+    preview_response = client.post(
+        "/api/railway/preview-split-folder",
+        json={
+            "documentIds": [document["id"]],
+            "ruleConfig": {
+                "mode": "tokens",
+                "tokens": [
+                    {"type": "field", "value": "issue_date"},
+                    {"type": "field", "value": "departure_station"},
+                    {"type": "field", "value": "arrival_station"},
+                    {"type": "field", "value": "amount"},
+                ],
+                "separator": "/",
+                "dateFormat": "YYYY-MM-DD",
+            },
+        },
+    )
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.get_json()[0]
+    assert preview_payload["folderPath"] == "2025-04-01/武汉站/北京西站/623.00"
+    assert preview_payload["newFileName"] == "2025-04-01_武汉站_北京西站_623.00.pdf"
+    assert preview_payload["fullOutputPath"] == "2025-04-01/武汉站/北京西站/623.00/2025-04-01_武汉站_北京西站_623.00.pdf"
+
+    export_response = client.post(
+        "/api/railway/export-split-folder",
+        json={
+            "documentIds": [document["id"]],
+            "ruleConfig": {
+                "mode": "tokens",
+                "tokens": [
+                    {"type": "field", "value": "issue_date"},
+                    {"type": "field", "value": "departure_station"},
+                    {"type": "field", "value": "arrival_station"},
+                    {"type": "field", "value": "amount"},
+                ],
+                "separator": "/",
+                "dateFormat": "YYYY-MM-DD",
+            },
+        },
+    )
+    assert export_response.status_code == 200
+    assert export_response.mimetype == "application/zip"
+
+    with zipfile.ZipFile(BytesIO(export_response.data)) as archive:
+        names = archive.namelist()
+    assert names == ["2025-04-01/武汉站/北京西站/623.00/2025-04-01_武汉站_北京西站_623.00.pdf"]
+
+
 def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
     def fake_detect(file_name, file_bytes):
         if "rail" in file_name:
