@@ -2,6 +2,9 @@ const ledgerState = {
   entries: [],
   selectedIds: new Set(),
   activeEntryId: "",
+  activeDetail: null,
+  documentModalEntryId: "",
+  detailCache: new Map(),
   filters: {
     invoiceTypes: [],
     expenseTypes: [],
@@ -15,16 +18,28 @@ const ledgerDeleteBtn = document.getElementById("ledgerDeleteBtn");
 const ledgerCountText = document.getElementById("ledgerCountText");
 const ledgerStatusText = document.getElementById("ledgerStatusText");
 const ledgerGroups = document.getElementById("ledgerGroups");
+const ledgerListArea = document.querySelector(".ledger-list-area");
 const selectAllCheckbox = document.getElementById("selectAllCheckbox");
 const ledgerFilters = [...document.querySelectorAll(".ledger-filter")];
 const ledgerFilterPanel = document.getElementById("ledgerFilterPanel");
 const toggleFilterBtn = document.getElementById("toggleFilterBtn");
 const ledgerDetailSection = document.getElementById("ledgerDetailSection");
 const collapseLedgerDetailBtn = document.getElementById("collapseLedgerDetailBtn");
+const ledgerDetailResizeHandle = document.getElementById("ledgerDetailResizeHandle");
 const ledgerPreviewContainer = document.getElementById("ledgerPreviewContainer");
+const ledgerPreviewOpenBtn = document.getElementById("ledgerPreviewOpenBtn");
 const ledgerInfoList = document.getElementById("ledgerInfoList");
 const ledgerExtendedList = document.getElementById("ledgerExtendedList");
 const ledgerDetailDownloadLink = document.getElementById("ledgerDetailDownloadLink");
+const ledgerDetailPrintBtn = document.getElementById("ledgerDetailPrintBtn");
+const ledgerDocumentModal = document.getElementById("ledgerDocumentModal");
+const ledgerDocumentViewer = document.getElementById("ledgerDocumentViewer");
+const ledgerDocumentTitle = document.getElementById("ledgerDocumentTitle");
+const ledgerDocumentDownloadLink = document.getElementById("ledgerDocumentDownloadLink");
+const ledgerDocumentPrintBtn = document.getElementById("ledgerDocumentPrintBtn");
+const ledgerDocumentCloseBtn = document.getElementById("ledgerDocumentCloseBtn");
+let detailResizeStartY = 0;
+let detailResizeStartHeight = 0;
 
 ledgerPickFilesBtn.addEventListener("click", () => ledgerFileInput.click());
 ledgerFileInput.addEventListener("change", event => uploadLedgerFiles(event.target.files));
@@ -33,7 +48,17 @@ ledgerDeleteBtn.addEventListener("click", deleteSelectedLedgerEntries);
 selectAllCheckbox.addEventListener("change", toggleSelectAllLedgerEntries);
 toggleFilterBtn.addEventListener("click", toggleFilterPanel);
 collapseLedgerDetailBtn.addEventListener("click", closeLedgerDetail);
+ledgerPreviewOpenBtn.addEventListener("click", openDocumentModalForActiveEntry);
+ledgerDetailPrintBtn.addEventListener("click", printActivePreview);
+ledgerDocumentPrintBtn.addEventListener("click", printDocumentModal);
+ledgerDocumentCloseBtn.addEventListener("click", closeDocumentModal);
+ledgerDetailResizeHandle.addEventListener("mousedown", startDetailResize);
 ledgerFilters.forEach(input => input.addEventListener("change", updateLedgerFilters));
+ledgerDocumentModal.addEventListener("click", event => {
+  if (event.target.dataset.ledgerDocumentClose !== undefined) {
+    closeDocumentModal();
+  }
+});
 
 async function loadLedgerEntries() {
   const search = new URLSearchParams();
@@ -54,8 +79,10 @@ async function loadLedgerEntries() {
   const validIds = new Set(ledgerState.entries.map(item => item.id));
   ledgerState.selectedIds = new Set([...ledgerState.selectedIds].filter(id => validIds.has(id)));
   if (ledgerState.activeEntryId && !validIds.has(ledgerState.activeEntryId)) {
-    ledgerState.activeEntryId = "";
     closeLedgerDetail();
+  }
+  if (ledgerState.documentModalEntryId && !validIds.has(ledgerState.documentModalEntryId)) {
+    closeDocumentModal();
   }
   renderLedgerGroups();
   renderLedgerToolbar();
@@ -80,9 +107,7 @@ async function uploadLedgerFiles(fileList) {
   }
 
   const payload = await response.json();
-  const failedText = payload.failed.length
-    ? `，其中 ${payload.failed.length} 张未识别成功`
-    : "";
+  const failedText = payload.failed.length ? `，其中 ${payload.failed.length} 张未识别成功` : "";
   ledgerStatusText.textContent = `已新增 ${payload.created.length} 张发票${failedText}。`;
   if (payload.failed.length) {
     window.alert(`以下文件未识别成功：\n${payload.failed.map(item => `${item.originalName}：${item.error}`).join("\n")}`);
@@ -204,31 +229,27 @@ function groupEntriesByMonth(entries) {
 }
 
 async function openLedgerDetail(entryId) {
-  const response = await fetch(`/api/ledger/${entryId}`);
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "加载详情失败。" }));
-    window.alert(error.message || "加载详情失败");
-    return;
-  }
-
-  const detail = await response.json();
+  const detail = await fetchLedgerDetail(entryId);
+  if (!detail) return;
   ledgerState.activeEntryId = entryId;
+  ledgerState.activeDetail = detail;
   ledgerDetailDownloadLink.href = detail.downloadUrl;
-  ledgerPreviewContainer.innerHTML =
-    detail.fileType.toLowerCase() === "pdf"
-      ? `<iframe class="ledger-preview-frame" src="${detail.previewUrl}" title="发票预览"></iframe>`
-      : `
-          <div class="ledger-preview-placeholder">
-            <p>当前文件为 OFD，浏览器可能无法直接内嵌显示。</p>
-            <a class="primary-btn" href="${detail.downloadUrl}">下载查看</a>
-          </div>
-        `;
   ledgerInfoList.innerHTML = detail.infoItems.map(renderInfoItem).join("");
   ledgerExtendedList.innerHTML = detail.extendedItems.map(renderInfoItem).join("");
+  renderInlineDetailPreview();
   ledgerDetailSection.classList.remove("hidden");
+  ledgerListArea.classList.add("ledger-list-area-detail-open");
   renderLedgerGroups();
   renderLedgerToolbar();
-  ledgerDetailSection.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderInlineDetailPreview() {
+  const detail = ledgerState.activeDetail;
+  if (!detail) {
+    ledgerPreviewContainer.innerHTML = "";
+    return;
+  }
+  ledgerPreviewContainer.innerHTML = renderPreviewEmbed(detail, "detail");
 }
 
 function renderInfoItem(item) {
@@ -242,9 +263,47 @@ function renderInfoItem(item) {
 
 function closeLedgerDetail() {
   ledgerState.activeEntryId = "";
+  ledgerState.activeDetail = null;
   ledgerDetailSection.classList.add("hidden");
+  ledgerListArea.classList.remove("ledger-list-area-detail-open");
   renderLedgerGroups();
   renderLedgerToolbar();
+}
+
+function openDocumentModalForActiveEntry() {
+  if (!ledgerState.activeDetail) return;
+  const detail = ledgerState.activeDetail;
+  ledgerState.documentModalEntryId = detail.id;
+  ledgerDocumentTitle.textContent = detail.originalName || "发票原票预览";
+  ledgerDocumentDownloadLink.href = detail.downloadUrl;
+  ledgerDocumentViewer.innerHTML = renderPreviewEmbed(detail, "modal");
+  ledgerDocumentModal.classList.remove("hidden");
+}
+
+function closeDocumentModal() {
+  ledgerState.documentModalEntryId = "";
+  ledgerDocumentModal.classList.add("hidden");
+  ledgerDocumentViewer.innerHTML = "";
+}
+
+function printActivePreview() {
+  if (!ledgerState.activeDetail) return;
+  printDetailFile(ledgerState.activeDetail);
+}
+
+function printDocumentModal() {
+  if (!ledgerState.documentModalEntryId) return;
+  const detail = ledgerState.detailCache.get(ledgerState.documentModalEntryId);
+  if (!detail) return;
+  printDetailFile(detail);
+}
+
+function printDetailFile(detail) {
+  if (detail.fileType.toLowerCase() === "pdf") {
+    window.open(detail.previewUrl, "_blank", "noopener");
+    return;
+  }
+  window.open(detail.downloadUrl, "_blank", "noopener");
 }
 
 function downloadSelectedLedgerEntries() {
@@ -268,6 +327,10 @@ async function deleteSelectedLedgerEntries() {
   if (deletingIds.includes(ledgerState.activeEntryId)) {
     closeLedgerDetail();
   }
+  if (deletingIds.includes(ledgerState.documentModalEntryId)) {
+    closeDocumentModal();
+  }
+  deletingIds.forEach(id => ledgerState.detailCache.delete(id));
   ledgerState.selectedIds.clear();
   await loadLedgerEntries();
 }
@@ -275,6 +338,64 @@ async function deleteSelectedLedgerEntries() {
 function toggleFilterPanel() {
   ledgerFilterPanel.classList.toggle("collapsed");
   toggleFilterBtn.textContent = ledgerFilterPanel.classList.contains("collapsed") ? "展开" : "收起";
+}
+
+async function fetchLedgerDetail(entryId) {
+  if (ledgerState.detailCache.has(entryId)) {
+    return ledgerState.detailCache.get(entryId);
+  }
+
+  const response = await fetch(`/api/ledger/${entryId}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "加载详情失败。" }));
+    window.alert(error.message || "加载详情失败");
+    return null;
+  }
+
+  const detail = await response.json();
+  ledgerState.detailCache.set(entryId, detail);
+  return detail;
+}
+
+function renderPreviewEmbed(detail, variant) {
+  if (detail.fileType.toLowerCase() === "pdf") {
+    const frameClass = variant === "modal" ? "ledger-document-frame" : "ledger-preview-frame";
+    return `<iframe class="${frameClass}" src="${buildPdfPreviewUrl(detail.previewUrl, variant)}" title="发票预览"></iframe>`;
+  }
+
+  const wrapperClass = variant === "modal" ? "ledger-document-placeholder" : "ledger-preview-placeholder";
+  return `
+    <div class="${wrapperClass}">
+      <p>当前文件为 OFD，浏览器可能无法直接内嵌显示。</p>
+      <a class="primary-btn" href="${detail.downloadUrl}">下载查看</a>
+    </div>
+  `;
+}
+
+function buildPdfPreviewUrl(previewUrl, variant) {
+  const zoom = "page-fit";
+  return `${previewUrl}#zoom=${zoom}&view=Fit`;
+}
+
+
+function startDetailResize(event) {
+  if (ledgerDetailSection.classList.contains("hidden")) return;
+  event.preventDefault();
+  detailResizeStartY = event.clientY;
+  detailResizeStartHeight = ledgerDetailSection.getBoundingClientRect().height;
+  window.addEventListener("mousemove", resizeDetailPanel);
+  window.addEventListener("mouseup", stopDetailResize);
+}
+
+function resizeDetailPanel(event) {
+  const deltaY = detailResizeStartY - event.clientY;
+  const nextHeight = Math.max(320, Math.min(window.innerHeight - 80, detailResizeStartHeight + deltaY));
+  document.documentElement.style.setProperty("--ledger-detail-height", `${nextHeight}px`);
+}
+
+function stopDetailResize() {
+  window.removeEventListener("mousemove", resizeDetailPanel);
+  window.removeEventListener("mouseup", stopDetailResize);
 }
 
 function formatChineseDate(value) {

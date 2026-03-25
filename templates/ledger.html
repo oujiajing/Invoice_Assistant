@@ -59,17 +59,25 @@
             <div id="ledgerGroups" class="ledger-groups"></div>
 
             <section id="ledgerDetailSection" class="panel ledger-detail-section hidden">
+              <div class="ledger-detail-dragbar">
+                <button id="ledgerDetailResizeHandle" class="ledger-detail-resize-handle" type="button" title="拖动调整详情高度">
+                  <span class="ledger-detail-grip"></span>
+                </button>
+              </div>
               <div class="panel-header ledger-detail-header">
                 <h3>发票信息</h3>
                 <div class="toolbar-actions">
                   <a id="ledgerDetailDownloadLink" class="secondary-btn" href="#" download>下载发票</a>
+                  <button id="ledgerDetailPrintBtn" class="secondary-btn">打印</button>
                   <button id="collapseLedgerDetailBtn" class="secondary-btn">收起</button>
                 </div>
               </div>
 
               <div class="ledger-detail-layout">
                 <div class="ledger-preview-pane">
-                  <div id="ledgerPreviewContainer" class="ledger-preview-container"></div>
+                  <div id="ledgerPreviewOpenBtn" class="ledger-preview-open-btn" title="打开原票大图预览">
+                    <div id="ledgerPreviewContainer" class="ledger-preview-container"></div>
+                  </div>
                 </div>
                 <div class="ledger-info-pane">
                   <div id="ledgerInfoList" class="ledger-info-list"></div>
@@ -114,6 +122,21 @@
           </aside>
         </section>
       </main>
+    </div>
+
+    <div id="ledgerDocumentModal" class="modal hidden">
+      <div class="modal-backdrop" data-ledger-document-close></div>
+      <div class="panel ledger-document-modal-content">
+        <div class="panel-header ledger-document-header">
+          <h3 id="ledgerDocumentTitle">发票原票预览</h3>
+          <div class="toolbar-actions">
+            <a id="ledgerDocumentDownloadLink" class="secondary-btn" href="#" download>下载发票</a>
+            <button id="ledgerDocumentPrintBtn" class="secondary-btn">打印</button>
+            <button id="ledgerDocumentCloseBtn" class="secondary-btn">关闭</button>
+          </div>
+        </div>
+        <div id="ledgerDocumentViewer" class="ledger-document-viewer"></div>
+      </div>
     </div>
 
     <script src="{{ url_for('static', filename='ledger.js') }}"></script>
