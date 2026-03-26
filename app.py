@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 from invoice_helper.airline_invoice import build_airline_invoice_preview_name, parse_airline_invoice_from_bytes
 from invoice_helper.general_invoice import apply_duplicate_strategy, build_general_invoice_preview_name, parse_general_invoice_from_bytes
 from invoice_helper.ledger import build_ledger_entry, delete_ledger_entries, detect_invoice_for_ledger, get_ledger_entry, init_ledger_db, insert_ledger_entry, list_ledger_entries
+from invoice_helper.ledger_stats import export_stats_workbook, get_stats_payload
 from invoice_helper.merge_print import add_files_to_merge_task, build_merge_list_workbook, build_merge_print_pdf, clear_merge_task, delete_merge_item
 from invoice_helper.models import AirlineInvoiceDocument, AirlineInvoiceFields, GeneralInvoiceDocument, GeneralInvoiceFields, RailwayDocument, RailwayTicketFields, RenameRuleConfig
 from invoice_helper.railway import build_preview_name, parse_railway_ticket_from_bytes
@@ -622,8 +623,53 @@ def ledger_upload_and_parse():
 def ledger_list():
     invoice_types = _split_query_values(request.args.get("invoice_types", ""))
     expense_types = _split_query_values(request.args.get("expense_types", ""))
-    entries = list_ledger_entries(LEDGER_DB_PATH, invoice_types=invoice_types or None, expense_types=expense_types or None)
+    invoice_categories = _split_query_values(request.args.get("invoice_categories", ""))
+    seller_names = _split_query_values(request.args.get("seller_names", ""))
+    payer_names = _split_query_values(request.args.get("payer_names", ""))
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
+    entries = list_ledger_entries(
+        LEDGER_DB_PATH,
+        invoice_types=invoice_types or None,
+        expense_types=expense_types or None,
+        invoice_categories=invoice_categories or None,
+        seller_names=seller_names or None,
+        payer_names=payer_names or None,
+        date_from=date_from or None,
+        date_to=date_to or None,
+    )
     return jsonify([_ledger_list_item(entry) for entry in entries])
+
+
+@app.get("/api/ledger/stats/summary")
+def ledger_stats_summary():
+    payload = _build_ledger_stats_payload_from_request()
+    return jsonify(payload["summary"])
+
+
+@app.get("/api/ledger/stats/charts")
+def ledger_stats_charts():
+    payload = _build_ledger_stats_payload_from_request()
+    return jsonify({"charts": payload["charts"], "filterOptions": payload["filterOptions"]})
+
+
+@app.get("/api/ledger/stats/table")
+def ledger_stats_table():
+    payload = _build_ledger_stats_payload_from_request()
+    return jsonify({"table": payload["table"]})
+
+
+@app.get("/api/ledger/stats/export")
+def ledger_stats_export():
+    payload = _build_ledger_stats_payload_from_request()
+    filters = _ledger_stats_filter_summary()
+    workbook_file = export_stats_workbook(payload, filter_summary=filters)
+    return send_file(
+        workbook_file,
+        as_attachment=True,
+        download_name="发票台账统计报表.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @app.get("/api/ledger/<entry_id>")
@@ -1025,6 +1071,38 @@ def _split_query_values(value: str) -> list[str]:
     if not value:
         return []
     return [unquote(item).strip() for item in value.split(",") if item.strip()]
+
+
+def _build_ledger_stats_payload_from_request() -> dict:
+    invoice_types = _split_query_values(request.args.get("invoice_types", ""))
+    expense_types = _split_query_values(request.args.get("expense_types", ""))
+    invoice_categories = _split_query_values(request.args.get("invoice_categories", ""))
+    seller_names = _split_query_values(request.args.get("seller_names", ""))
+    payer_names = _split_query_values(request.args.get("payer_names", ""))
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
+    return get_stats_payload(
+        LEDGER_DB_PATH,
+        date_from=date_from,
+        date_to=date_to,
+        invoice_types=invoice_types,
+        expense_types=expense_types,
+        invoice_categories=invoice_categories,
+        seller_names=seller_names,
+        payer_names=payer_names,
+    )
+
+
+def _ledger_stats_filter_summary() -> dict[str, str]:
+    return {
+        "开始日期": request.args.get("date_from", "").strip(),
+        "结束日期": request.args.get("date_to", "").strip(),
+        "发票类型": "、".join(_split_query_values(request.args.get("invoice_types", ""))),
+        "费用类型": "、".join(_split_query_values(request.args.get("expense_types", ""))),
+        "票种类别": "、".join(_split_query_values(request.args.get("invoice_categories", ""))),
+        "销售方": "、".join(_split_query_values(request.args.get("seller_names", ""))),
+        "付款方": "、".join(_split_query_values(request.args.get("payer_names", ""))),
+    }
 
 
 def _ledger_list_item(entry: dict) -> dict:

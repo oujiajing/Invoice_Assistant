@@ -8,7 +8,19 @@ const ledgerState = {
   filters: {
     invoiceTypes: [],
     expenseTypes: [],
+    invoiceCategories: [],
   },
+  reportFilters: {
+    datePreset: "month",
+    dateFrom: "",
+    dateTo: "",
+    sellerNames: "",
+    payerNames: "",
+  },
+  viewMode: "list",
+  reportData: null,
+  chartInstances: new Map(),
+  chartFilterKey: "",
 };
 
 const ledgerFileInput = document.getElementById("ledgerFileInput");
@@ -19,6 +31,8 @@ const ledgerCountText = document.getElementById("ledgerCountText");
 const ledgerStatusText = document.getElementById("ledgerStatusText");
 const ledgerGroups = document.getElementById("ledgerGroups");
 const ledgerListArea = document.querySelector(".ledger-list-area");
+const ledgerListView = document.getElementById("ledgerListView");
+const ledgerReportView = document.getElementById("ledgerReportView");
 const selectAllCheckbox = document.getElementById("selectAllCheckbox");
 const ledgerFilters = [...document.querySelectorAll(".ledger-filter")];
 const ledgerFilterPanel = document.getElementById("ledgerFilterPanel");
@@ -38,6 +52,28 @@ const ledgerDocumentTitle = document.getElementById("ledgerDocumentTitle");
 const ledgerDocumentDownloadLink = document.getElementById("ledgerDocumentDownloadLink");
 const ledgerDocumentPrintBtn = document.getElementById("ledgerDocumentPrintBtn");
 const ledgerDocumentCloseBtn = document.getElementById("ledgerDocumentCloseBtn");
+const ledgerListViewBtn = document.getElementById("ledgerListViewBtn");
+const ledgerReportViewBtn = document.getElementById("ledgerReportViewBtn");
+const ledgerDatePresetButtons = [...document.querySelectorAll(".ledger-date-preset")];
+const ledgerDateFromInput = document.getElementById("ledgerDateFromInput");
+const ledgerDateToInput = document.getElementById("ledgerDateToInput");
+const ledgerSellerFilterInput = document.getElementById("ledgerSellerFilterInput");
+const ledgerPayerFilterInput = document.getElementById("ledgerPayerFilterInput");
+const ledgerApplyReportFiltersBtn = document.getElementById("ledgerApplyReportFiltersBtn");
+const ledgerExportStatsBtn = document.getElementById("ledgerExportStatsBtn");
+const ledgerReportSummary = document.getElementById("ledgerReportSummary");
+const ledgerReportTableBody = document.getElementById("ledgerReportTableBody");
+const ledgerReportTableHint = document.getElementById("ledgerReportTableHint");
+
+const chartNodes = {
+  amountTrend: document.getElementById("ledgerAmountTrendChart"),
+  countTrend: document.getElementById("ledgerCountTrendChart"),
+  expenseType: document.getElementById("ledgerExpenseTypeChart"),
+  invoiceType: document.getElementById("ledgerInvoiceTypeChart"),
+  invoiceCategory: document.getElementById("ledgerInvoiceCategoryChart"),
+  invoiceCategoryAmount: document.getElementById("ledgerInvoiceCategoryAmountChart"),
+};
+
 let detailResizeStartY = 0;
 let detailResizeStartHeight = 0;
 
@@ -54,13 +90,18 @@ ledgerDocumentPrintBtn.addEventListener("click", printDocumentModal);
 ledgerDocumentCloseBtn.addEventListener("click", closeDocumentModal);
 ledgerDetailResizeHandle.addEventListener("mousedown", startDetailResize);
 ledgerFilters.forEach(input => input.addEventListener("change", updateLedgerFilters));
+ledgerListViewBtn.addEventListener("click", () => switchLedgerView("list"));
+ledgerReportViewBtn.addEventListener("click", () => switchLedgerView("report"));
+ledgerDatePresetButtons.forEach(button => button.addEventListener("click", () => applyDatePreset(button.dataset.datePreset)));
+ledgerApplyReportFiltersBtn.addEventListener("click", applyReportFilters);
+window.addEventListener("resize", resizeLedgerCharts);
 ledgerDocumentModal.addEventListener("click", event => {
   if (event.target.dataset.ledgerDocumentClose !== undefined) {
     closeDocumentModal();
   }
 });
 
-async function loadLedgerEntries() {
+function buildLedgerQuery(includeReportFilters = false) {
   const search = new URLSearchParams();
   if (ledgerState.filters.invoiceTypes.length) {
     search.set("invoice_types", ledgerState.filters.invoiceTypes.join(","));
@@ -68,8 +109,30 @@ async function loadLedgerEntries() {
   if (ledgerState.filters.expenseTypes.length) {
     search.set("expense_types", ledgerState.filters.expenseTypes.join(","));
   }
+  if (ledgerState.filters.invoiceCategories.length) {
+    search.set("invoice_categories", ledgerState.filters.invoiceCategories.join(","));
+  }
+  if (includeReportFilters) {
+    if (ledgerState.reportFilters.dateFrom) {
+      search.set("date_from", ledgerState.reportFilters.dateFrom);
+    }
+    if (ledgerState.reportFilters.dateTo) {
+      search.set("date_to", ledgerState.reportFilters.dateTo);
+    }
+    const sellerNames = splitTextValues(ledgerState.reportFilters.sellerNames);
+    if (sellerNames.length) {
+      search.set("seller_names", sellerNames.join(","));
+    }
+    const payerNames = splitTextValues(ledgerState.reportFilters.payerNames);
+    if (payerNames.length) {
+      search.set("payer_names", payerNames.join(","));
+    }
+  }
+  return search;
+}
 
-  const response = await fetch(`/api/ledger/list?${search.toString()}`);
+async function loadLedgerEntries() {
+  const response = await fetch(`/api/ledger/list?${buildLedgerQuery(false).toString()}`);
   if (!response.ok) {
     ledgerStatusText.textContent = "台账加载失败，请稍后重试。";
     return;
@@ -86,6 +149,29 @@ async function loadLedgerEntries() {
   }
   renderLedgerGroups();
   renderLedgerToolbar();
+}
+
+async function loadLedgerReport() {
+  const query = buildLedgerQuery(true).toString();
+  const [summaryResponse, chartsResponse, tableResponse] = await Promise.all([
+    fetch(`/api/ledger/stats/summary?${query}`),
+    fetch(`/api/ledger/stats/charts?${query}`),
+    fetch(`/api/ledger/stats/table?${query}`),
+  ]);
+  if (!summaryResponse.ok || !chartsResponse.ok || !tableResponse.ok) {
+    ledgerReportSummary.innerHTML = '<article class="panel ledger-summary-card"><strong>报表加载失败</strong><span>请稍后重试</span></article>';
+    return;
+  }
+  const summary = await summaryResponse.json();
+  const chartsPayload = await chartsResponse.json();
+  const tablePayload = await tableResponse.json();
+  ledgerState.reportData = {
+    summary,
+    charts: chartsPayload.charts,
+    filterOptions: chartsPayload.filterOptions,
+    table: tablePayload.table,
+  };
+  renderLedgerReport();
 }
 
 async function uploadLedgerFiles(fileList) {
@@ -113,7 +199,7 @@ async function uploadLedgerFiles(fileList) {
     window.alert(`以下文件未识别成功：\n${payload.failed.map(item => `${item.originalName}：${item.error}`).join("\n")}`);
   }
   ledgerFileInput.value = "";
-  await loadLedgerEntries();
+  await refreshLedgerData();
 }
 
 function updateLedgerFilters() {
@@ -123,7 +209,10 @@ function updateLedgerFilters() {
   ledgerState.filters.expenseTypes = ledgerFilters
     .filter(input => input.dataset.filterGroup === "expenseType" && input.checked)
     .map(input => input.value);
-  loadLedgerEntries();
+  ledgerState.filters.invoiceCategories = ledgerFilters
+    .filter(input => input.dataset.filterGroup === "invoiceCategory" && input.checked)
+    .map(input => input.value);
+  refreshLedgerData();
 }
 
 function renderLedgerGroups() {
@@ -194,10 +283,12 @@ function renderLedgerCard(item) {
 }
 
 function renderLedgerToolbar() {
-  ledgerCountText.textContent = `发票 · ${ledgerState.entries.length}`;
-  ledgerDownloadBtn.disabled = ledgerState.selectedIds.size === 0;
-  ledgerDeleteBtn.disabled = ledgerState.selectedIds.size === 0;
+  const countLabel = ledgerState.viewMode === "report" ? `统计范围 · ${ledgerState.entries.length}` : `发票 · ${ledgerState.entries.length}`;
+  ledgerCountText.textContent = countLabel;
+  ledgerDownloadBtn.disabled = ledgerState.selectedIds.size === 0 || ledgerState.viewMode !== "list";
+  ledgerDeleteBtn.disabled = ledgerState.selectedIds.size === 0 || ledgerState.viewMode !== "list";
   selectAllCheckbox.checked = ledgerState.entries.length > 0 && ledgerState.selectedIds.size === ledgerState.entries.length;
+  selectAllCheckbox.disabled = ledgerState.viewMode !== "list";
 }
 
 function toggleSelectAllLedgerEntries() {
@@ -229,6 +320,7 @@ function groupEntriesByMonth(entries) {
 }
 
 async function openLedgerDetail(entryId) {
+  if (ledgerState.viewMode !== "list") return;
   const detail = await fetchLedgerDetail(entryId);
   if (!detail) return;
   ledgerState.activeEntryId = entryId;
@@ -332,7 +424,7 @@ async function deleteSelectedLedgerEntries() {
   }
   deletingIds.forEach(id => ledgerState.detailCache.delete(id));
   ledgerState.selectedIds.clear();
-  await loadLedgerEntries();
+  await refreshLedgerData();
 }
 
 function toggleFilterPanel() {
@@ -377,7 +469,6 @@ function buildPdfPreviewUrl(previewUrl, variant) {
   return `${previewUrl}#zoom=${zoom}&view=Fit`;
 }
 
-
 function startDetailResize(event) {
   if (ledgerDetailSection.classList.contains("hidden")) return;
   event.preventDefault();
@@ -398,10 +489,194 @@ function stopDetailResize() {
   window.removeEventListener("mouseup", stopDetailResize);
 }
 
+function switchLedgerView(viewMode) {
+  ledgerState.viewMode = viewMode;
+  ledgerListView.classList.toggle("hidden", viewMode !== "list");
+  ledgerReportView.classList.toggle("hidden", viewMode !== "report");
+  ledgerListViewBtn.classList.toggle("ledger-view-tab-active", viewMode === "list");
+  ledgerReportViewBtn.classList.toggle("ledger-view-tab-active", viewMode === "report");
+  if (viewMode !== "list") {
+    closeLedgerDetail();
+  }
+  renderLedgerToolbar();
+  if (viewMode === "report") {
+    loadLedgerReport();
+  }
+}
+
+function applyDatePreset(preset) {
+  ledgerState.reportFilters.datePreset = preset;
+  ledgerDatePresetButtons.forEach(button => button.classList.toggle("active", button.dataset.datePreset === preset));
+  const now = new Date();
+  if (preset === "month") {
+    ledgerState.reportFilters.dateFrom = formatDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1));
+    ledgerState.reportFilters.dateTo = formatDateInputValue(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  } else if (preset === "quarter") {
+    ledgerState.reportFilters.dateFrom = formatDateInputValue(new Date(now.getFullYear(), now.getMonth() - 2, 1));
+    ledgerState.reportFilters.dateTo = formatDateInputValue(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  } else if (preset === "year") {
+    ledgerState.reportFilters.dateFrom = formatDateInputValue(new Date(now.getFullYear(), 0, 1));
+    ledgerState.reportFilters.dateTo = formatDateInputValue(new Date(now.getFullYear(), 11, 31));
+  }
+  syncReportInputs();
+  refreshLedgerData();
+}
+
+function applyReportFilters() {
+  ledgerState.reportFilters.dateFrom = ledgerDateFromInput.value;
+  ledgerState.reportFilters.dateTo = ledgerDateToInput.value;
+  ledgerState.reportFilters.sellerNames = ledgerSellerFilterInput.value.trim();
+  ledgerState.reportFilters.payerNames = ledgerPayerFilterInput.value.trim();
+  ledgerState.reportFilters.datePreset = "custom";
+  ledgerDatePresetButtons.forEach(button => button.classList.toggle("active", button.dataset.datePreset === "custom"));
+  refreshLedgerData();
+}
+
+function syncReportInputs() {
+  ledgerDateFromInput.value = ledgerState.reportFilters.dateFrom;
+  ledgerDateToInput.value = ledgerState.reportFilters.dateTo;
+  ledgerSellerFilterInput.value = ledgerState.reportFilters.sellerNames;
+  ledgerPayerFilterInput.value = ledgerState.reportFilters.payerNames;
+}
+
+async function refreshLedgerData() {
+  await loadLedgerEntries();
+  if (ledgerState.viewMode === "report") {
+    await loadLedgerReport();
+  }
+  ledgerExportStatsBtn.href = `/api/ledger/stats/export?${buildLedgerQuery(true).toString()}`;
+}
+
+function renderLedgerReport() {
+  const reportData = ledgerState.reportData;
+  if (!reportData) return;
+  renderSummaryCards(reportData.summary);
+  renderReportTable(reportData.table);
+  renderReportCharts(reportData.charts);
+}
+
+function renderSummaryCards(summary) {
+  ledgerReportSummary.innerHTML = `
+    <article class="panel ledger-summary-card"><span>发票总数</span><strong>${summary.invoiceCount}</strong></article>
+    <article class="panel ledger-summary-card"><span>去重后发票数</span><strong>${summary.uniqueInvoiceCount}</strong></article>
+    <article class="panel ledger-summary-card"><span>总金额</span><strong>¥ ${summary.totalAmount}</strong></article>
+    <article class="panel ledger-summary-card"><span>平均票面金额</span><strong>¥ ${summary.averageAmount}</strong></article>
+    <article class="panel ledger-summary-card ledger-summary-card-warn"><span>重复发票数</span><strong>${summary.duplicateCount}</strong></article>
+  `;
+}
+
+function renderReportTable(rows) {
+  if (!rows.length) {
+    ledgerReportTableHint.textContent = "当前没有重复发票。";
+    ledgerReportTableBody.innerHTML = '<tr class="empty-row"><td colspan="9">当前筛选范围内未检测到重复发票。</td></tr>';
+    return;
+  }
+  ledgerReportTableHint.textContent = `当前检测到 ${rows.length} 条重复发票记录。`;
+  const filteredRows = ledgerState.chartFilterKey ? rows.filter(row => row.duplicateStatus === ledgerState.chartFilterKey) : rows;
+  ledgerReportTableBody.innerHTML = filteredRows
+    .map(
+      row => `
+        <tr class="stats-row-duplicate">
+          <td>${escapeHtml(row.invoiceCategory)}</td>
+          <td title="${escapeHtml(row.originalName)}">${escapeHtml(row.originalName)}</td>
+          <td>${escapeHtml(row.invoiceNumber || "-")}</td>
+          <td>${escapeHtml(formatChineseDate(row.issueDate))}</td>
+          <td>${escapeHtml(row.amount || "-")}</td>
+          <td>${escapeHtml(row.sellerName || "-")}</td>
+          <td>${escapeHtml(row.payerName || "-")}</td>
+          <td><span class="stats-status stats-status-duplicate">${escapeHtml(row.duplicateStatus)}</span></td>
+          <td>${escapeHtml(row.duplicateGroup || "-")}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function renderReportCharts(charts) {
+  if (typeof echarts === "undefined") return;
+  renderChart("amountTrend", {
+    tooltip: { trigger: "axis" },
+    xAxis: { type: "category", data: charts.amountTrend.labels },
+    yAxis: { type: "value" },
+    series: [{ type: "line", smooth: true, data: charts.amountTrend.series, itemStyle: { color: "#2d6cdf" } }],
+  });
+  renderChart("countTrend", {
+    tooltip: { trigger: "axis" },
+    xAxis: { type: "category", data: charts.countTrend.labels },
+    yAxis: { type: "value" },
+    series: [{ type: "bar", data: charts.countTrend.series, itemStyle: { color: "#6b9df5" } }],
+  });
+  renderChart("expenseType", createPieOption(charts.expenseType, "费用类型"));
+  renderChart("invoiceType", createPieOption(charts.invoiceType, "发票类型"));
+  renderChart("invoiceCategory", {
+    tooltip: { trigger: "axis" },
+    xAxis: { type: "value" },
+    yAxis: { type: "category", data: charts.invoiceCategory.labels },
+    series: [{ type: "bar", data: charts.invoiceCategory.series, itemStyle: { color: "#3f8cff" } }],
+  });
+  renderChart("invoiceCategoryAmount", {
+    tooltip: { trigger: "axis" },
+    xAxis: { type: "value" },
+    yAxis: { type: "category", data: charts.invoiceCategoryAmount.labels },
+    series: [{ type: "bar", data: charts.invoiceCategoryAmount.series, itemStyle: { color: "#4a72dd" } }],
+  });
+}
+
+function createPieOption(chartData, name) {
+  return {
+    tooltip: { trigger: "item" },
+    legend: { bottom: 0 },
+    series: [
+      {
+        name,
+        type: "pie",
+        radius: ["45%", "68%"],
+        data: chartData.labels.map((label, index) => ({ name: label, value: chartData.series[index] })),
+      },
+    ],
+  };
+}
+
+function renderChart(key, option) {
+  const node = chartNodes[key];
+  if (!node) return;
+  let chart = ledgerState.chartInstances.get(key);
+  if (!chart) {
+    chart = echarts.init(node);
+    ledgerState.chartInstances.set(key, chart);
+    if (key === "expenseType" || key === "invoiceType") {
+      chart.on("click", params => {
+        ledgerState.chartFilterKey = "";
+        renderReportTable(ledgerState.reportData?.table || []);
+      });
+    }
+  }
+  chart.setOption(option, true);
+}
+
+function resizeLedgerCharts() {
+  ledgerState.chartInstances.forEach(chart => chart.resize());
+}
+
+function splitTextValues(value) {
+  return String(value || "")
+    .split(/[，,]/)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
 function formatChineseDate(value) {
   if (!value) return "-";
+  if (!value.includes("-")) return value;
   const [year, month, day] = value.split("-");
   return `${Number(year)}年${Number(month)}月${Number(day)}日`;
+}
+
+function formatDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function escapeHtml(value) {
@@ -412,4 +687,6 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-loadLedgerEntries();
+applyDatePreset("month");
+syncReportInputs();
+refreshLedgerData();

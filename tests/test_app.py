@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 import shutil
+import uuid
 import zipfile
 
 from openpyxl import load_workbook
@@ -15,8 +16,8 @@ from invoice_helper.models import AirlineInvoiceFields, GeneralInvoiceFields, Ra
 @pytest.fixture()
 def client(monkeypatch):
     app_module.app.config["TESTING"] = True
-    temp_root = Path.cwd() / ".pytest_tmp"
-    temp_root.mkdir(exist_ok=True)
+    temp_root = Path.cwd() / ".pytest_tmp" / str(uuid.uuid4())
+    temp_root.mkdir(parents=True, exist_ok=True)
     upload_dir = temp_root / "uploads"
     upload_dir.mkdir(exist_ok=True)
     stats_dedup_dir = temp_root / "stats_dedup"
@@ -473,6 +474,114 @@ def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
     assert delete_response.status_code == 200
     after_delete = client.get("/api/ledger/list").get_json()
     assert len(after_delete) == 2
+
+
+def test_ledger_stats_summary_charts_and_export(client, monkeypatch):
+    def fake_detect(file_name, file_bytes):
+        if "rail" in file_name:
+            return (
+                "railway",
+                RailwayTicketFields(
+                    invoice_number="25429165848000965552",
+                    issue_date="2025-03-31",
+                    departure_station="广州南站",
+                    arrival_station="长沙南站",
+                    departure_datetime="2025-03-30 16:21",
+                    train_number="G810",
+                    amount="314.00",
+                    passenger_name="李志",
+                ).to_dict(),
+                "铁路电子客票",
+            )
+        if "rail-dup" in file_name:
+            return (
+                "railway",
+                RailwayTicketFields(
+                    invoice_number="25429165848000965552",
+                    issue_date="2025-03-31",
+                    departure_station="广州南站",
+                    arrival_station="长沙南站",
+                    departure_datetime="2025-03-30 16:21",
+                    train_number="G810",
+                    amount="314.00",
+                    passenger_name="李志",
+                ).to_dict(),
+                "铁路电子客票",
+            )
+        if "air" in file_name:
+            return (
+                "airline",
+                AirlineInvoiceFields(
+                    invoice_number="26112000001054174981",
+                    issue_date="2025-09-15",
+                    departure_airport="北京大兴",
+                    arrival_airport="广州",
+                    flight_number="JD5921",
+                    cabin_class="经济舱 Q舱",
+                    departure_time="2025-09-15",
+                    total_amount="930.00",
+                    passenger_name="李志",
+                ).to_dict(),
+                "北京首都航空有限公司",
+            )
+        return (
+            "general",
+            GeneralInvoiceFields(
+                invoice_type="电子发票（普通发票）",
+                invoice_number="25312000000002446025",
+                issue_date="2025-01-08",
+                buyer_name="广东工业大学",
+                seller_name="北京大小酒店有限公司雅乐轩饭店",
+                total_amount="629.64",
+                remarks="*住宿服务*住宿服务",
+            ).to_dict(),
+            "*住宿服务*住宿服务",
+        )
+
+    monkeypatch.setattr(app_module, "detect_invoice_for_ledger", fake_detect)
+
+    upload_response = client.post(
+        "/api/ledger/upload-and-parse",
+        data={
+            "files": [
+                (BytesIO(b"%PDF rail"), "rail-ticket.pdf"),
+                (BytesIO(b"%PDF rail dup"), "rail-dup-ticket.pdf"),
+                (BytesIO(b"%PDF air"), "air-ticket.pdf"),
+                (BytesIO(b"%PDF hotel"), "hotel-ticket.pdf"),
+            ]
+        },
+        content_type="multipart/form-data",
+    )
+    assert upload_response.status_code == 200
+
+    summary_response = client.get("/api/ledger/stats/summary")
+    assert summary_response.status_code == 200
+    summary = summary_response.get_json()
+    assert summary["invoiceCount"] == 4
+    assert summary["uniqueInvoiceCount"] == 3
+    assert summary["duplicateCount"] == 1
+    assert summary["totalAmount"] == "2187.64"
+
+    charts_response = client.get("/api/ledger/stats/charts")
+    assert charts_response.status_code == 200
+    charts_payload = charts_response.get_json()
+    assert "amountTrend" in charts_payload["charts"]
+    assert "invoiceCategoryAmount" in charts_payload["charts"]
+    assert charts_payload["charts"]["invoiceCategoryAmount"]["labels"] == ["常规数电发票", "铁路电子客票", "航空电子客票"]
+    assert charts_payload["charts"]["invoiceCategoryAmount"]["series"] == [629.64, 628.0, 930.0]
+
+    table_response = client.get("/api/ledger/stats/table")
+    assert table_response.status_code == 200
+    table_payload = table_response.get_json()
+    assert len(table_payload["table"]) == 1
+    assert table_payload["table"][0]["duplicateStatus"] == "重复发票"
+
+    export_response = client.get("/api/ledger/stats/export")
+    assert export_response.status_code == 200
+    workbook = load_workbook(BytesIO(export_response.data))
+    assert workbook.sheetnames == ["汇总概览", "明细数据"]
+    assert workbook["汇总概览"]["A2"].value == "发票总数"
+    assert workbook["明细数据"]["H2"].value == "重复发票"
 
 
 def test_merge_print_upload_build_download_and_export_list(client):

@@ -113,7 +113,17 @@ def insert_ledger_entry(db_path: Path, entry: dict[str, str]) -> None:
         )
 
 
-def list_ledger_entries(db_path: Path, *, invoice_types: list[str] | None = None, expense_types: list[str] | None = None) -> list[dict[str, Any]]:
+def list_ledger_entries(
+    db_path: Path,
+    *,
+    invoice_types: list[str] | None = None,
+    expense_types: list[str] | None = None,
+    invoice_categories: list[str] | None = None,
+    seller_names: list[str] | None = None,
+    payer_names: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[dict[str, Any]]:
     query = """
         SELECT id, invoice_category, expense_type, invoice_type_filter, title, amount, issue_date,
                payer_name, seller_name, item_summary, remarks, original_name, stored_path, file_type,
@@ -130,6 +140,24 @@ def list_ledger_entries(db_path: Path, *, invoice_types: list[str] | None = None
         placeholders = ",".join("?" for _ in expense_types)
         clauses.append(f"expense_type IN ({placeholders})")
         params.extend(expense_types)
+    if invoice_categories:
+        placeholders = ",".join("?" for _ in invoice_categories)
+        clauses.append(f"invoice_category IN ({placeholders})")
+        params.extend(invoice_categories)
+    if seller_names:
+        placeholders = ",".join("?" for _ in seller_names)
+        clauses.append(f"seller_name IN ({placeholders})")
+        params.extend(seller_names)
+    if payer_names:
+        placeholders = ",".join("?" for _ in payer_names)
+        clauses.append(f"payer_name IN ({placeholders})")
+        params.extend(payer_names)
+    if date_from:
+        clauses.append("issue_date >= ?")
+        params.append(date_from)
+    if date_to:
+        clauses.append("issue_date <= ?")
+        params.append(date_to)
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY issue_date DESC, created_at DESC"

@@ -36,6 +36,10 @@
         <section class="panel ledger-panel">
           <div class="ledger-toolbar">
             <div class="ledger-toolbar-left">
+              <div class="ledger-view-switch" role="tablist" aria-label="台账视图切换">
+                <button id="ledgerListViewBtn" class="ledger-view-tab ledger-view-tab-active" type="button">台账列表</button>
+                <button id="ledgerReportViewBtn" class="ledger-view-tab" type="button">统计报表</button>
+              </div>
               <div class="ledger-count-row">
                 <strong id="ledgerCountText">发票 · 0</strong>
                 <label class="ledger-select-all">
@@ -50,13 +54,137 @@
               </div>
               <input id="ledgerFileInput" type="file" multiple accept=".pdf,.ofd" hidden />
             </div>
+
+            <aside id="ledgerFilterPanel" class="panel ledger-filter-panel collapsed">
+              <div class="panel-header ledger-filter-header">
+                <h3>筛选</h3>
+                <button id="toggleFilterBtn" class="secondary-btn">展开</button>
+              </div>
+
+              <div class="ledger-filter-body">
+                <div class="filter-group">
+                  <h4>发票类型</h4>
+                  <div class="filter-options">
+                    <label><input class="ledger-filter" data-filter-group="invoiceType" type="checkbox" value="增值税专票" /> 增值税专票</label>
+                    <label><input class="ledger-filter" data-filter-group="invoiceType" type="checkbox" value="普通发票" /> 普通发票</label>
+                  </div>
+                </div>
+
+                <div class="filter-group">
+                  <h4>费用类型</h4>
+                  <div class="filter-options">
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="交通" /> 交通</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="餐饮" /> 餐饮</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="通讯" /> 通讯</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="住宿" /> 住宿</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="医疗" /> 医疗</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="物流" /> 物流</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="租赁" /> 租赁</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="物管" /> 物管</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="商品" /> 商品</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="服务" /> 服务</label>
+                    <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="其他" /> 其他</label>
+                  </div>
+                </div>
+
+                <div class="filter-group">
+                  <h4>票种类别</h4>
+                  <div class="filter-options">
+                    <label><input class="ledger-filter" data-filter-group="invoiceCategory" type="checkbox" value="railway" /> 铁路</label>
+                    <label><input class="ledger-filter" data-filter-group="invoiceCategory" type="checkbox" value="airline" /> 航空</label>
+                    <label><input class="ledger-filter" data-filter-group="invoiceCategory" type="checkbox" value="general" /> 常规数电</label>
+                  </div>
+                </div>
+              </div>
+            </aside>
           </div>
         </section>
 
         <section class="ledger-content">
           <div class="ledger-list-area">
             <div id="ledgerStatusText" class="ledger-status-text">上传高铁票、机票、住宿发票后，这里会显示台账卡片。</div>
-            <div id="ledgerGroups" class="ledger-groups"></div>
+            <div id="ledgerListView" class="ledger-view-panel">
+              <div id="ledgerGroups" class="ledger-groups"></div>
+            </div>
+
+            <section id="ledgerReportView" class="ledger-view-panel ledger-report-view hidden">
+              <div class="panel ledger-report-filters">
+                <div class="ledger-report-filter-row">
+                  <div class="ledger-report-date-presets">
+                    <button class="secondary-btn ledger-date-preset active" data-date-preset="month" type="button">本月</button>
+                    <button class="secondary-btn ledger-date-preset" data-date-preset="quarter" type="button">近3个月</button>
+                    <button class="secondary-btn ledger-date-preset" data-date-preset="year" type="button">今年</button>
+                    <button class="secondary-btn ledger-date-preset" data-date-preset="custom" type="button">自定义</button>
+                  </div>
+                  <div class="ledger-report-date-inputs">
+                    <label>开始日期 <input id="ledgerDateFromInput" type="date" /></label>
+                    <label>结束日期 <input id="ledgerDateToInput" type="date" /></label>
+                    <button id="ledgerApplyReportFiltersBtn" class="primary-btn" type="button">更新报表</button>
+                    <a id="ledgerExportStatsBtn" class="secondary-btn" href="#">导出统计报表</a>
+                  </div>
+                </div>
+                <div class="ledger-report-filter-row ledger-report-filter-row-compact">
+                  <label>销售方 <input id="ledgerSellerFilterInput" type="text" placeholder="多个销售方用中文逗号分隔" /></label>
+                  <label>付款方 <input id="ledgerPayerFilterInput" type="text" placeholder="多个付款方用中文逗号分隔" /></label>
+                </div>
+              </div>
+
+              <div class="ledger-report-summary" id="ledgerReportSummary"></div>
+
+              <div class="ledger-report-grid">
+                <section class="panel ledger-chart-panel">
+                  <div class="panel-header"><h3>开票金额趋势</h3></div>
+                  <div id="ledgerAmountTrendChart" class="ledger-chart"></div>
+                </section>
+                <section class="panel ledger-chart-panel">
+                  <div class="panel-header"><h3>发票数量趋势</h3></div>
+                  <div id="ledgerCountTrendChart" class="ledger-chart"></div>
+                </section>
+                <section class="panel ledger-chart-panel">
+                  <div class="panel-header"><h3>费用类型分布</h3></div>
+                  <div id="ledgerExpenseTypeChart" class="ledger-chart"></div>
+                </section>
+                <section class="panel ledger-chart-panel">
+                  <div class="panel-header"><h3>发票类型分布</h3></div>
+                  <div id="ledgerInvoiceTypeChart" class="ledger-chart"></div>
+                </section>
+                <section class="panel ledger-chart-panel">
+                  <div class="panel-header"><h3>票种来源分布</h3></div>
+                  <div id="ledgerInvoiceCategoryChart" class="ledger-chart"></div>
+                </section>
+                <section class="panel ledger-chart-panel">
+                  <div class="panel-header"><h3>票种来源金额</h3></div>
+                  <div id="ledgerInvoiceCategoryAmountChart" class="ledger-chart"></div>
+                </section>
+              </div>
+
+              <section class="panel ledger-report-table-panel">
+                <div class="panel-header">
+                  <h3>最近异常与重复发票</h3>
+                  <span id="ledgerReportTableHint">当前没有重复发票。</span>
+                </div>
+                <div class="ledger-report-table-wrap">
+                  <table class="stats-table ledger-report-table">
+                    <thead>
+                      <tr>
+                        <th>票种</th>
+                        <th>文件名</th>
+                        <th>发票号码</th>
+                        <th>开票日期</th>
+                        <th>金额</th>
+                        <th>销售方</th>
+                        <th>付款方</th>
+                        <th>重复状态</th>
+                        <th>重复组</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ledgerReportTableBody">
+                      <tr class="empty-row"><td colspan="9">切换到统计报表后，这里会显示重复发票明细。</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </section>
 
             <section id="ledgerDetailSection" class="panel ledger-detail-section hidden">
               <div class="ledger-detail-dragbar">
@@ -86,40 +214,6 @@
               </div>
             </section>
           </div>
-
-          <aside id="ledgerFilterPanel" class="panel ledger-filter-panel collapsed">
-            <div class="panel-header ledger-filter-header">
-              <h3>筛选</h3>
-              <button id="toggleFilterBtn" class="secondary-btn">展开</button>
-            </div>
-
-            <div class="ledger-filter-body">
-              <div class="filter-group">
-                <h4>发票类型</h4>
-                <div class="filter-options">
-                  <label><input class="ledger-filter" data-filter-group="invoiceType" type="checkbox" value="增值税专票" /> 增值税专票</label>
-                  <label><input class="ledger-filter" data-filter-group="invoiceType" type="checkbox" value="普通发票" /> 普通发票</label>
-                </div>
-              </div>
-
-              <div class="filter-group">
-                <h4>费用类型</h4>
-                <div class="filter-options">
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="交通" /> 交通</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="餐饮" /> 餐饮</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="通讯" /> 通讯</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="住宿" /> 住宿</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="医疗" /> 医疗</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="物流" /> 物流</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="租赁" /> 租赁</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="物管" /> 物管</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="商品" /> 商品</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="服务" /> 服务</label>
-                  <label><input class="ledger-filter" data-filter-group="expenseType" type="checkbox" value="其他" /> 其他</label>
-                </div>
-              </div>
-            </div>
-          </aside>
         </section>
       </main>
     </div>
@@ -139,6 +233,7 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <script src="{{ url_for('static', filename='ledger.js') }}"></script>
   </body>
 </html>
