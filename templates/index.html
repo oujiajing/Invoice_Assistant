@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -21,8 +21,6 @@
           <a class="nav-item" href="/ledger">发票台账管理</a>
           <a class="nav-item" href="/merge-print">发票合并打印</a>
           <a class="nav-item" href="/stats-dedup">发票统计查重</a>
-          <button class="nav-item">发票格式转换</button>
-          <button class="nav-item">发票添加专用章</button>
           <a class="nav-item" href="/split-folder">发票分文件夹</a>
           <a class="nav-item nav-item-active" href="/">发票文件重命名</a>
           <div class="nav-sub-group">
@@ -30,10 +28,6 @@
             <button class="nav-sub-item" data-invoice-type="railway">铁路电子客票</button>
             <button class="nav-sub-item" data-invoice-type="airline">航空电子客票</button>
           </div>
-          <button class="nav-item">发票文件合并</button>
-          <button class="nav-item">发票文件拆分</button>
-          <button class="nav-item">发票文件对切</button>
-          <button class="nav-item">发票文件修复</button>
         </nav>
       </aside>
 
@@ -211,3 +205,6 @@
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>
 </html>
+
+
+
