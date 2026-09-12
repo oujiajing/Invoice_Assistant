@@ -38,7 +38,7 @@ def client(monkeypatch):
 def test_upload_preview_and_export_flow(client, monkeypatch):
     def fake_parse(file_name, file_bytes):
         return RailwayTicketFields(
-            invoice_number="25429165800000526150",
+            invoice_number="900000000000000001",
             issue_date="2025-04-01",
             departure_station="武汉站",
             arrival_station="北京西站",
@@ -46,8 +46,8 @@ def test_upload_preview_and_export_flow(client, monkeypatch):
             train_number="G70",
             seat_number="08车05B号",
             amount="623.00",
-            passenger_name="李志",
-            passenger_id="4307231982****0037",
+            passenger_name="测试乘客",
+            passenger_id="0000000000****0001",
         )
 
     monkeypatch.setattr(app_module, "parse_railway_ticket_from_bytes", fake_parse)
@@ -115,13 +115,13 @@ def test_upload_preview_and_export_flow(client, monkeypatch):
     row = [cell.value for cell in worksheet[2]]
     assert headers == ["原文件名", "发票号码", "出发站", "票价"]
     assert row[0] == "ticket.pdf"
-    assert row[1:] == ["25429165800000526150", "武汉站", "623.00"]
+    assert row[1:] == ["900000000000000001", "武汉站", "623.00"]
 
 
 def test_delete_and_clear_documents(client, monkeypatch):
     def fake_parse(file_name, file_bytes):
         return RailwayTicketFields(
-            invoice_number="25429165800000526150",
+            invoice_number="900000000000000001",
             issue_date="2025-04-01",
             departure_station="武汉站",
             arrival_station="北京西站",
@@ -156,10 +156,10 @@ def test_general_invoice_flow(client, monkeypatch):
     def fake_parse(file_name, file_bytes):
         return GeneralInvoiceFields(
             invoice_type="电子发票（普通发票）",
-            invoice_number="25312000000002446025",
+            invoice_number="900000000000000004",
             issue_date="2025-01-03",
-            buyer_name="广东工业大学",
-            seller_name="上海淳大酒店投资管理有限公司",
+            buyer_name="示例购买方",
+            seller_name="示例酒店管理有限公司",
             total_amount="813.64",
         )
 
@@ -173,7 +173,7 @@ def test_general_invoice_flow(client, monkeypatch):
 
     assert upload_response.status_code == 200
     document = upload_response.get_json()[0]
-    assert document["fields"]["seller_name"] == "上海淳大酒店投资管理有限公司"
+    assert document["fields"]["seller_name"] == "示例酒店管理有限公司"
 
     preview_response = client.post(
         "/api/general-invoice/preview-rename",
@@ -187,7 +187,7 @@ def test_general_invoice_flow(client, monkeypatch):
         },
     )
     assert preview_response.status_code == 200
-    assert preview_response.get_json()[0]["conflictResolvedName"] == "2025-01-03_上海淳大酒店投资管理有限公司_813.64"
+    assert preview_response.get_json()[0]["conflictResolvedName"] == "2025-01-03_示例酒店管理有限公司_813.64"
 
     excel_response = client.post(
         "/api/general-invoice/export-excel",
@@ -211,13 +211,13 @@ def test_general_invoice_flow(client, monkeypatch):
     assert "购买方名称" in headers
     assert "销售方名称" in headers
     assert "解析状态" not in headers
-    assert row[headers.index("销售方名称")] == "上海淳大酒店投资管理有限公司"
+    assert row[headers.index("销售方名称")] == "示例酒店管理有限公司"
 
 
 def test_airline_invoice_flow(client, monkeypatch):
     def fake_parse(file_name, file_bytes):
         return AirlineInvoiceFields(
-            invoice_number="26112000001054174981",
+            invoice_number="900000000000000003",
             issue_date="2026-03-18",
             departure_airport="北京大兴",
             arrival_airport="广州",
@@ -226,8 +226,8 @@ def test_airline_invoice_flow(client, monkeypatch):
             departure_time="2025-09-15",
             amount="807.34",
             total_amount="930.00",
-            passenger_name="李志",
-            passenger_id="430723******120037",
+            passenger_name="测试乘客",
+            passenger_id="000000******000001",
         )
 
     monkeypatch.setattr(app_module, "parse_airline_invoice_from_bytes", fake_parse)
@@ -274,7 +274,7 @@ def test_airline_invoice_flow(client, monkeypatch):
     headers = [cell.value for cell in worksheet[1]]
     row = [cell.value for cell in worksheet[2]]
     assert headers == ["原文件名", "航班号", "乘机人姓名"]
-    assert row == ["airline.pdf", "JD5921", "李志"]
+    assert row == ["airline.pdf", "JD5921", "测试乘客"]
 
 
 def test_export_excel_requires_successful_documents(client):
@@ -303,7 +303,7 @@ def test_export_excel_requires_successful_documents(client):
 def test_split_folder_preview_and_export_flow(client, monkeypatch):
     def fake_parse(file_name, file_bytes):
         return RailwayTicketFields(
-            invoice_number="25429165800000526150",
+            invoice_number="900000000000000001",
             issue_date="2025-04-01",
             departure_station="武汉站",
             arrival_station="北京西站",
@@ -311,7 +311,7 @@ def test_split_folder_preview_and_export_flow(client, monkeypatch):
             train_number="G70",
             seat_number="08车05B号",
             amount="623.00",
-            passenger_name="李志",
+            passenger_name="测试乘客",
         )
 
     monkeypatch.setattr(app_module, "parse_railway_ticket_from_bytes", fake_parse)
@@ -378,14 +378,14 @@ def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
             return (
                 "railway",
                 RailwayTicketFields(
-                    invoice_number="25429165848000965552",
+                    invoice_number="900000000000000002",
                     issue_date="2025-03-31",
                     departure_station="广州南站",
                     arrival_station="长沙南站",
                     departure_datetime="2025-03-30 16:21",
                     train_number="G810",
                     amount="314.00",
-                    passenger_name="李志",
+                    passenger_name="测试乘客",
                 ).to_dict(),
                 "铁路电子客票",
             )
@@ -393,7 +393,7 @@ def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
             return (
                 "airline",
                 AirlineInvoiceFields(
-                    invoice_number="26112000001054174981",
+                    invoice_number="900000000000000003",
                     issue_date="2025-09-15",
                     departure_airport="北京大兴",
                     arrival_airport="广州",
@@ -401,19 +401,19 @@ def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
                     cabin_class="经济舱 Q舱",
                     departure_time="2025-09-15",
                     total_amount="930.00",
-                    passenger_name="李志",
+                    passenger_name="测试乘客",
                 ).to_dict(),
-                "北京首都航空有限公司",
+                "示例航空公司",
             )
         if "hotel" in file_name:
             return (
                 "general",
                 GeneralInvoiceFields(
                     invoice_type="电子发票（普通发票）",
-                    invoice_number="25312000000002446025",
+                    invoice_number="900000000000000004",
                     issue_date="2025-01-08",
-                    buyer_name="广东工业大学",
-                    seller_name="北京大小酒店有限公司雅乐轩饭店",
+                    buyer_name="示例购买方",
+                    seller_name="示例酒店有限公司",
                     total_amount="629.64",
                     remarks="*住宿服务*住宿服务",
                 ).to_dict(),
@@ -457,7 +457,7 @@ def test_ledger_upload_list_detail_download_and_delete(client, monkeypatch):
     detail_response = client.get(f"/api/ledger/{hotel_entry['id']}")
     assert detail_response.status_code == 200
     detail = detail_response.get_json()
-    assert detail["title"] == "北京大小酒店有限公司雅乐轩饭店"
+    assert detail["title"] == "示例酒店有限公司"
     assert detail["infoItems"][3]["label"] == "项目名称"
 
     preview_response = client.get(f"/api/ledger/{hotel_entry['id']}/preview")
@@ -482,14 +482,14 @@ def test_ledger_stats_summary_charts_and_export(client, monkeypatch):
             return (
                 "railway",
                 RailwayTicketFields(
-                    invoice_number="25429165848000965552",
+                    invoice_number="900000000000000002",
                     issue_date="2025-03-31",
                     departure_station="广州南站",
                     arrival_station="长沙南站",
                     departure_datetime="2025-03-30 16:21",
                     train_number="G810",
                     amount="314.00",
-                    passenger_name="李志",
+                    passenger_name="测试乘客",
                 ).to_dict(),
                 "铁路电子客票",
             )
@@ -497,14 +497,14 @@ def test_ledger_stats_summary_charts_and_export(client, monkeypatch):
             return (
                 "railway",
                 RailwayTicketFields(
-                    invoice_number="25429165848000965552",
+                    invoice_number="900000000000000002",
                     issue_date="2025-03-31",
                     departure_station="广州南站",
                     arrival_station="长沙南站",
                     departure_datetime="2025-03-30 16:21",
                     train_number="G810",
                     amount="314.00",
-                    passenger_name="李志",
+                    passenger_name="测试乘客",
                 ).to_dict(),
                 "铁路电子客票",
             )
@@ -512,7 +512,7 @@ def test_ledger_stats_summary_charts_and_export(client, monkeypatch):
             return (
                 "airline",
                 AirlineInvoiceFields(
-                    invoice_number="26112000001054174981",
+                    invoice_number="900000000000000003",
                     issue_date="2025-09-15",
                     departure_airport="北京大兴",
                     arrival_airport="广州",
@@ -520,18 +520,18 @@ def test_ledger_stats_summary_charts_and_export(client, monkeypatch):
                     cabin_class="经济舱 Q舱",
                     departure_time="2025-09-15",
                     total_amount="930.00",
-                    passenger_name="李志",
+                    passenger_name="测试乘客",
                 ).to_dict(),
-                "北京首都航空有限公司",
+                "示例航空公司",
             )
         return (
             "general",
             GeneralInvoiceFields(
                 invoice_type="电子发票（普通发票）",
-                invoice_number="25312000000002446025",
+                invoice_number="900000000000000004",
                 issue_date="2025-01-08",
-                buyer_name="广东工业大学",
-                seller_name="北京大小酒店有限公司雅乐轩饭店",
+                buyer_name="示例购买方",
+                seller_name="示例酒店有限公司",
                 total_amount="629.64",
                 remarks="*住宿服务*住宿服务",
             ).to_dict(),
@@ -676,27 +676,27 @@ def test_stats_dedup_analyze_and_export(client, monkeypatch):
         if "ticket" not in file_name:
             raise ValueError("not railway")
         return RailwayTicketFields(
-            invoice_number="25429165800000526150",
+            invoice_number="900000000000000001",
             issue_date="2025-04-01",
             departure_station="武汉站",
             arrival_station="北京西站",
             departure_datetime="2025-03-31 08:36",
             amount="623.00",
-            passenger_name="李志",
+            passenger_name="测试乘客",
         )
 
     def fake_airline_parse(file_name, file_bytes):
         if "airline" not in file_name:
             raise ValueError("not airline")
         return AirlineInvoiceFields(
-            invoice_number="26112000001054174981",
+            invoice_number="900000000000000003",
             issue_date="2026-03-18",
             departure_airport="北京大兴",
             arrival_airport="广州",
             flight_number="JD5921",
             amount="807.34",
             total_amount="930.00",
-            passenger_name="李志",
+            passenger_name="测试乘客",
         )
 
     def fake_general_parse(file_name, file_bytes):
@@ -704,10 +704,10 @@ def test_stats_dedup_analyze_and_export(client, monkeypatch):
             raise ValueError("not general")
         return GeneralInvoiceFields(
             invoice_type="电子发票（普通发票）",
-            invoice_number="25312000000002446025",
+            invoice_number="900000000000000004",
             issue_date="2025-01-03",
-            buyer_name="广东工业大学",
-            seller_name="上海淳大酒店投资管理有限公司",
+            buyer_name="示例购买方",
+            seller_name="示例酒店管理有限公司",
             amount="767.58",
             tax_amount="46.06",
             total_amount="813.64",

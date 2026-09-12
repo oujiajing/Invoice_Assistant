@@ -9,6 +9,9 @@ __pycache__/
 # Runtime uploaded files
 runtime/
 
+# Private planning materials, reimbursement files and local demo exports
+Invoice Assistant方案/
+
 # Virtual environments
 .venv/
 venv/
@@ -24,6 +27,3 @@ env/
 .DS_Store
 Thumbs.db
 desktop.ini
-产品方案书版.md
-产品需求文档PRD.md
-项目总结与实现说明.md

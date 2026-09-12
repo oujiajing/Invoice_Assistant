@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import uuid
 import zipfile
@@ -33,6 +34,8 @@ STATS_DEDUP_DIR.mkdir(parents=True, exist_ok=True)
 init_ledger_db(LEDGER_DB_PATH)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+# Keep local demos bounded; callers can override this for a trusted dataset.
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 RAILWAY_DOCUMENT_STORE: dict[str, RailwayDocument] = {}
 GENERAL_DOCUMENT_STORE: dict[str, GeneralInvoiceDocument] = {}
 AIRLINE_DOCUMENT_STORE: dict[str, AirlineInvoiceDocument] = {}
@@ -1297,4 +1300,5 @@ def _build_stats_dedup_key_from_item(item) -> str:
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    debug_enabled = os.getenv("INVOICE_ASSISTANT_DEBUG", "0") == "1"
+    app.run(host="127.0.0.1", port=5050, debug=debug_enabled)
