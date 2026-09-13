@@ -28,8 +28,8 @@
       <main class="main merge-main">
         <section class="merge-hero panel stats-hero">
           <div class="merge-hero-banner stats-hero-banner">
-          <h2>本地 PDF 电子发票统计与查重</h2>
-            <p>批量上传 PDF 格式电子发票文件，系统会自动统计发票信息并标记重复发票，可导出为 Excel 表格。</p>
+          <h2>本地票据统计与查重</h2>
+            <p>批量上传 PDF、OFD 或图片电子发票文件，系统会自动统计发票信息并标记重复发票，可导出为 Excel 表格。</p>
           </div>
 
           <section class="steps merge-steps stats-steps">
@@ -51,10 +51,10 @@
 
           <section id="statsUploadPanel" class="panel merge-upload-card stats-upload-card">
             <div id="statsDropzone" class="dropzone merge-dropzone stats-dropzone">
-              <input id="statsFileInput" type="file" multiple accept=".pdf" hidden />
+              <input id="statsFileInput" type="file" multiple accept=".pdf,.ofd,.jpg,.jpeg,.png" hidden />
               <div class="drop-icon">📄</div>
-              <h3>点击或拖动选择 PDF 发票文件（可多选）</h3>
-              <p>支持三票种自动识别。当前模块仅支持 PDF，不支持 OFD。</p>
+              <h3>点击或拖动选择 PDF / OFD / 图片发票文件（可多选）</h3>
+              <p>支持三票种自动识别，电子 PDF / OFD 优先原生解析，图片和扫描 PDF 使用可选 OCR。</p>
               <button id="statsPickFilesBtn" class="primary-btn">选择文件</button>
             </div>
           </section>

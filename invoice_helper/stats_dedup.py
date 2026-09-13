@@ -27,6 +27,7 @@ class StatsDedupItem:
     dedup_status: str = "待统计"
     duplicate_group_key: str = ""
     error: str = ""
+    parse_source: str = "native"
     fields: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +45,7 @@ class StatsDedupItem:
             "dedupStatus": self.dedup_status,
             "duplicateGroupKey": self.duplicate_group_key,
             "error": self.error,
+            "parseSource": self.parse_source,
             "fields": self.fields,
         }
 
@@ -78,8 +80,8 @@ def add_files_to_stats_task(
     for file_storage in files:
         original_name = file_storage.filename or "未命名文件.pdf"
         suffix = Path(original_name).suffix.lower()
-        if suffix != ".pdf":
-            raise ValueError("当前模块仅支持 PDF 发票。")
+        if suffix not in {".pdf", ".ofd", ".jpg", ".jpeg", ".png"}:
+            raise ValueError("当前模块仅支持 PDF、OFD、JPG、JPEG 或 PNG 发票。")
         item_id = str(uuid.uuid4())
         stored_name = secure_filename(f"{item_id}{suffix}")
         stored_path = upload_dir / stored_name
@@ -89,7 +91,7 @@ def add_files_to_stats_task(
                 item_id=item_id,
                 original_name=original_name,
                 stored_path=str(stored_path),
-                file_type="pdf",
+                file_type=suffix.lstrip("."),
             )
         )
     return task

@@ -118,6 +118,52 @@ def test_upload_preview_and_export_flow(client, monkeypatch):
     assert row[1:] == ["900000000000000001", "武汉站", "623.00"]
 
 
+@pytest.mark.parametrize("suffix", ["jpg", "jpeg", "png"])
+def test_image_upload_enters_ocr_parser_flow(client, monkeypatch, suffix):
+    def fake_parse(file_name, file_bytes):
+        return RailwayTicketFields(invoice_number="900000000000000001", parse_source="ocr")
+
+    monkeypatch.setattr(app_module, "parse_railway_ticket_from_bytes", fake_parse)
+
+    response = client.post(
+        "/api/railway/upload-and-parse",
+        data={"files": (BytesIO(b"fake-image"), f"ticket.{suffix}")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    document = response.get_json()[0]
+    assert document["fileType"] == suffix
+    assert document["parseSource"] == "ocr"
+    assert document["parseStatus"] == "success"
+
+
+def test_one_image_ocr_failure_does_not_block_batch(client, monkeypatch):
+    def fake_parse(file_name, file_bytes):
+        if file_name == "broken.png":
+            raise RuntimeError("OCR_FAILED: 模型不可用")
+        return RailwayTicketFields(invoice_number="900000000000000002", parse_source="ocr")
+
+    monkeypatch.setattr(app_module, "parse_railway_ticket_from_bytes", fake_parse)
+
+    response = client.post(
+        "/api/railway/upload-and-parse",
+        data={
+            "files": [
+                (BytesIO(b"bad-image"), "broken.png"),
+                (BytesIO(b"good-image"), "good.jpeg"),
+            ]
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    documents = response.get_json()
+    assert [item["parseStatus"] for item in documents] == ["failed", "success"]
+    assert "OCR_FAILED" in documents[0]["error"]
+    assert documents[1]["parseSource"] == "ocr"
+
+
 def test_delete_and_clear_documents(client, monkeypatch):
     def fake_parse(file_name, file_bytes):
         return RailwayTicketFields(
@@ -771,14 +817,14 @@ def test_stats_dedup_analyze_and_export(client, monkeypatch):
     assert worksheet["I3"].value == "是"
 
 
-def test_stats_dedup_rejects_non_pdf(client):
+def test_stats_dedup_rejects_unsupported_file(client):
     upload_response = client.post(
         "/api/stats-dedup/upload",
-        data={"files": (BytesIO(b"fake ofd"), "ticket.ofd")},
+        data={"files": (BytesIO(b"unsupported"), "ticket.txt")},
         content_type="multipart/form-data",
     )
     assert upload_response.status_code == 400
-    assert upload_response.get_json()["message"] == "当前模块仅支持 PDF 发票。"
+    assert upload_response.get_json()["message"] == "当前模块仅支持 PDF、OFD、JPG、JPEG 或 PNG 发票。"
 
 
 def test_stats_dedup_parse_failure_is_preserved(client, monkeypatch):
@@ -798,4 +844,4 @@ def test_stats_dedup_parse_failure_is_preserved(client, monkeypatch):
     assert analyze_response.status_code == 200
     item = analyze_response.get_json()["items"][0]
     assert item["dedupStatus"] == "解析失败"
-    assert item["error"] == "未识别为支持统计的 PDF 发票。"
+    assert item["error"] == "未识别为支持统计的发票。"

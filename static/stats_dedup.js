@@ -72,9 +72,9 @@ function syncStatsPhase() {
 async function uploadStatsFiles(fileList) {
   const files = [...fileList];
   if (!files.length) return;
-  const invalid = files.find(file => !/\.pdf$/i.test(file.name));
+  const invalid = files.find(file => !/\.(pdf|ofd|jpg|jpeg|png)$/i.test(file.name));
   if (invalid) {
-    window.alert("当前模块仅支持 PDF 发票。");
+    window.alert("当前模块仅支持 PDF、OFD、JPG、JPEG 或 PNG 发票。");
     return;
   }
   const formData = new FormData();
@@ -106,7 +106,7 @@ function renderStatsList() {
   statsTableFooter.classList.toggle("hidden", !statsState.items.length || !statsState.items.some(item => item.dedupStatus !== "待统计"));
 
   if (!statsState.items.length) {
-    statsListBody.innerHTML = '<tr class="empty-row"><td colspan="9">上传 PDF 发票后，这里会显示待统计文件列表。</td></tr>';
+    statsListBody.innerHTML = '<tr class="empty-row"><td colspan="9">上传 PDF、OFD 或图片发票后，这里会显示待统计文件列表。</td></tr>';
     return;
   }
 

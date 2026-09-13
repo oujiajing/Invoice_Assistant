@@ -76,18 +76,20 @@ def extract_text_from_ofd_bytes(file_bytes: bytes) -> str:
 
 
 def parse_railway_ticket_from_bytes(file_name: str, file_bytes: bytes) -> RailwayTicketFields:
-    extension = Path(file_name).suffix.lower()
-    if extension == ".pdf":
-        text = extract_text_from_pdf_bytes(file_bytes)
-    elif extension == ".ofd":
-        text = extract_text_from_ofd_bytes(file_bytes)
-    else:
-        raise ValueError("仅支持 PDF 或 OFD 格式。")
-    return parse_railway_ticket_text(text)
+    from .document_text import extract_document_text
+
+    extracted = extract_document_text(file_name, file_bytes, validator=parse_railway_ticket_text)
+    fields = parse_railway_ticket_text(extracted.text)
+    fields.parse_source = extracted.source
+    fields.raw_text = extracted.text
+    return fields
 
 
 def parse_railway_ticket_text(text: str) -> RailwayTicketFields:
-    if "铁路电子客票" not in text:
+    if not (
+        "铁路电子客票" in text
+        or ("铁路" in text and "客票" in text and ("中国铁路" in text or "电子发票" in text))
+    ):
         raise ValueError("未识别为铁路电子客票文件。")
 
     lines = _normalize_lines(text)
@@ -192,6 +194,11 @@ def _extract_amount(compact: str, lines: list[str]) -> str:
 
 
 def _extract_passenger(compact: str, lines: list[str]) -> tuple[str, str]:
+    for index, line in enumerate(lines[:-1]):
+        if re.fullmatch(r"[\u4e00-\u9fff]{2,4}", line):
+            id_match = re.fullmatch(r"\d{10}\*+\w{2,6}", lines[index + 1])
+            if id_match:
+                return id_match.group(0), line
     for line in lines:
         line_match = re.search(r"(\d{6}\d{4}\*+\w{0,4})([\u4e00-\u9fff]{2,4})$", line)
         if line_match:
@@ -215,6 +222,18 @@ def _extract_stations(lines: list[str]) -> tuple[str, str]:
         nearby = _collect_nearby_station_names(lines[max(0, travel_date_index - 8):travel_date_index])
         if len(nearby) >= 2:
             return nearby[0], nearby[1]
+        station_candidates = [
+            line
+            for line in lines[max(0, travel_date_index - 8):travel_date_index]
+            if re.fullmatch(r"[\u4e00-\u9fff]{2,8}", line)
+            and line != "站"
+            and not line.endswith("税务局")
+            and "发票" not in line
+            and "铁路" not in line
+            and "客票" not in line
+        ]
+        if len(station_candidates) >= 2:
+            return f"{station_candidates[0]}站", f"{station_candidates[1]}站"
 
     issue_date_index = _find_first_line(lines, lambda line: line.startswith("开票日期:"))
     if issue_date_index is not None:

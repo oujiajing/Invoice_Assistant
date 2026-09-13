@@ -92,6 +92,7 @@ AIRLINE_FIELD_DEFINITIONS = [
 ]
 
 INVALID_PATH_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+SUPPORTED_PARSE_SUFFIXES = {".pdf", ".ofd", ".jpg", ".jpeg", ".png"}
 
 
 @app.errorhandler(ValueError)
@@ -255,6 +256,7 @@ def stats_dedup_analyze():
             item.tax_amount = normalized["taxAmount"]
             item.total_amount = normalized["totalAmount"]
             item.fields = normalized["fields"]
+            item.parse_source = getattr(fields, "parse_source", "native")
             dedup_key = _build_stats_dedup_key(category, normalized)
             if dedup_key:
                 duplicate_counters[dedup_key] = duplicate_counters.get(dedup_key, 0) + 1
@@ -588,7 +590,7 @@ def airline_clear_documents():
 def ledger_upload_and_parse():
     files = request.files.getlist("files")
     if not files:
-        raise ValueError("请至少上传一个 PDF 或 OFD 文件。")
+        raise ValueError("请至少上传一个 PDF、OFD 或图片文件。")
 
     created_entries: list[dict] = []
     failed_entries: list[dict] = []
@@ -596,13 +598,21 @@ def ledger_upload_and_parse():
         entry_id = str(uuid.uuid4())
         original_name = file_storage.filename or "未命名文件"
         suffix = Path(original_name).suffix.lower()
+        if suffix not in SUPPORTED_PARSE_SUFFIXES:
+            failed_entries.append({"originalName": original_name, "error": "仅支持 PDF、OFD、JPG、JPEG 或 PNG 格式。"})
+            continue
         stored_name = f"{entry_id}{suffix}"
         stored_path = UPLOAD_DIR / secure_filename(stored_name)
         file_bytes = file_storage.read()
         stored_path.write_bytes(file_bytes)
 
         try:
-            category, fields, raw_text = detect_invoice_for_ledger(original_name, file_bytes)
+            detection = detect_invoice_for_ledger(original_name, file_bytes)
+            if len(detection) == 4:
+                category, fields, raw_text, parse_source = detection
+            else:
+                category, fields, raw_text = detection
+                parse_source = "ocr" if suffix in {".jpg", ".jpeg", ".png"} else "native"
             entry = build_ledger_entry(
                 entry_id=entry_id,
                 category=category,
@@ -611,6 +621,7 @@ def ledger_upload_and_parse():
                 original_name=original_name,
                 stored_path=str(stored_path),
                 file_type=suffix.lstrip("."),
+                parse_source=parse_source,
             )
             insert_ledger_entry(LEDGER_DB_PATH, entry)
             created_entries.append(_ledger_list_item(get_ledger_entry(LEDGER_DB_PATH, entry_id)))
@@ -739,13 +750,27 @@ def _upload_and_parse(
 ) -> list[dict]:
     files = request.files.getlist("files")
     if not files:
-        raise ValueError("请至少上传一个 PDF 或 OFD 文件。")
+        raise ValueError("请至少上传一个 PDF、OFD 或图片文件。")
 
     documents: list[dict] = []
     for file_storage in files:
         document_id = str(uuid.uuid4())
         original_name = file_storage.filename or "未命名文件"
         suffix = Path(original_name).suffix.lower()
+        if suffix not in SUPPORTED_PARSE_SUFFIXES:
+            document = document_factory(
+                document_id=document_id,
+                original_name=original_name,
+                stored_name="",
+                stored_path="",
+                file_type=suffix.lstrip("."),
+                parse_status="failed",
+                fields=fields_factory(),
+                error="仅支持 PDF、OFD、JPG、JPEG 或 PNG 格式。",
+            )
+            store[document_id] = document
+            documents.append(document.to_dict())
+            continue
         stored_name = f"{document_id}{suffix}"
         stored_path = UPLOAD_DIR / secure_filename(stored_name)
         file_bytes = file_storage.read()
@@ -763,6 +788,7 @@ def _upload_and_parse(
 
         try:
             document.fields = parser(original_name, file_bytes)
+            document.parse_source = getattr(document.fields, "parse_source", "native")
         except Exception as exc:
             document.parse_status = "failed"
             document.error = str(exc)
@@ -941,7 +967,7 @@ def _delete_document(document_id: str, store: dict) -> dict[str, str]:
         return {"message": "未找到要删除的票据。"}
 
     stored_path = Path(document.stored_path)
-    if stored_path.exists():
+    if stored_path.is_file():
         stored_path.unlink()
     return {"message": "票据已删除。"}
 
@@ -949,7 +975,7 @@ def _delete_document(document_id: str, store: dict) -> dict[str, str]:
 def _clear_documents(store: dict) -> dict[str, str]:
     for document in store.values():
         stored_path = Path(document.stored_path)
-        if stored_path.exists():
+        if stored_path.is_file():
             stored_path.unlink()
     store.clear()
     return {"message": "列表已清空。"}
@@ -1123,6 +1149,7 @@ def _ledger_list_item(entry: dict) -> dict:
         "remarks": entry["remarks"],
         "originalName": entry["original_name"],
         "fileType": entry["file_type"],
+        "parseSource": entry.get("parse_source", "native"),
         "createdAt": entry["created_at"],
     }
 
@@ -1137,7 +1164,7 @@ def _ledger_detail_payload(entry: dict) -> dict:
         {"label": "金额", "value": f"¥ {entry['amount']}" if entry["amount"] else ""},
         {"label": "开票日期", "value": entry["issue_date"]},
         {"label": "发票种类", "value": entry["invoice_type_filter"]},
-        {"label": "来自", "value": "本地上传"},
+        {"label": "解析来源", "value": "OCR识别" if entry.get("parse_source") == "ocr" else "原生解析"},
         {"label": "备注", "value": entry["remarks"]},
     ]
     extended_items = []
@@ -1202,7 +1229,7 @@ def _detect_invoice_for_stats(file_name: str, file_bytes: bytes) -> tuple[str, o
             return category, parser(file_name, file_bytes)
         except Exception:
             continue
-    raise ValueError("未识别为支持统计的 PDF 发票。")
+    raise ValueError("未识别为支持统计的发票。")
 
 
 def _normalize_stats_fields(category: str, fields: object) -> dict[str, object]:

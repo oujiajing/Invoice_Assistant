@@ -3,11 +3,11 @@ const invoiceTypeConfigs = {
     key: "general",
     apiBase: "/api/general-invoice",
     label: "常规数电发票",
-    heroTitle: "本地 PDF / OFD 格式常规数电发票文件重命名",
-    heroDescription: "批量上传常规数电发票文件，按票面字段自动识别并预览新文件名，支持自定义规则后导出重命名结果压缩包。",
-    uploadTitle: "点击或拖拽上传 PDF / OFD 格式常规数电发票文件",
+    heroTitle: "本地 PDF / OFD / 图片格式常规数电发票文件重命名",
+    heroDescription: "批量上传常规数电发票文件，电子 PDF/OFD 优先原生解析，图片和扫描 PDF 自动使用 OCR。",
+    uploadTitle: "点击或拖拽上传 PDF / OFD / JPG / PNG 格式常规数电发票文件",
     uploadDescription: "支持多选批量上传，上传后先进入解析结果列表，再手动开始重命名。",
-    emptyMessage: "上传 PDF / OFD 常规数电发票文件后，这里会显示解析结果和重命名预览。",
+    emptyMessage: "上传 PDF / OFD / 图片常规数电发票文件后，这里会显示解析结果和重命名预览。",
     defaultTemplate: "{开票日期}_{销售方名称}_{价税合计}",
     templateHint:
       "可用变量：{发票类型} {发票代码} {发票号码} {开票日期} {购买方名称} {购买方税号} {销售方名称} {销售方税号} {发票金额} {发票税额} {价税合计} {价税合计大写} {备注} {收款人} {复核人} {开票人} {自定义内容}",
@@ -38,6 +38,7 @@ const invoiceTypeConfigs = {
     resultColumns: [
       { key: "status", label: "状态" },
       { key: "originalName", label: "原文件名" },
+      { key: "parseSource", label: "解析来源" },
       { key: "invoice_type", label: "发票类型" },
       { key: "invoice_number", label: "发票号码" },
       { key: "issue_date", label: "开票日期" },
@@ -52,11 +53,11 @@ const invoiceTypeConfigs = {
     key: "railway",
     apiBase: "/api/railway",
     label: "铁路电子客票",
-    heroTitle: "本地 PDF / OFD 格式铁路电子客票文件重命名",
-    heroDescription: "批量上传铁路电子客票文件，按票面字段自动识别并预览新文件名，支持自定义规则后导出重命名结果压缩包。",
-    uploadTitle: "点击或拖拽上传 PDF / OFD 格式铁路电子客票文件",
+    heroTitle: "本地 PDF / OFD / 图片格式铁路电子客票文件重命名",
+    heroDescription: "批量上传铁路电子客票文件，电子 PDF/OFD 优先原生解析，图片和扫描 PDF 自动使用 OCR。",
+    uploadTitle: "点击或拖拽上传 PDF / OFD / JPG / PNG 格式铁路电子客票文件",
     uploadDescription: "支持多选批量上传，上传后先进入解析结果列表，再手动开始重命名。",
-    emptyMessage: "上传 PDF / OFD 铁路电子客票文件后，这里会显示解析结果和重命名预览。",
+    emptyMessage: "上传 PDF / OFD / 图片铁路电子客票文件后，这里会显示解析结果和重命名预览。",
     defaultTemplate: "{开票日期}_{出发站}_{到达站}_{票价}",
     templateHint:
       "可用变量：{发票号码} {开票日期} {出发站} {到达站} {发车时间} {车次} {座位号} {票价} {乘车人姓名} {乘车人身份证号} {自定义内容}",
@@ -82,6 +83,7 @@ const invoiceTypeConfigs = {
     resultColumns: [
       { key: "status", label: "状态" },
       { key: "originalName", label: "原文件名" },
+      { key: "parseSource", label: "解析来源" },
       { key: "invoice_number", label: "发票号码" },
       { key: "issue_date", label: "开票日期" },
       { key: "departure_station", label: "出发站" },
@@ -96,11 +98,11 @@ const invoiceTypeConfigs = {
     key: "airline",
     apiBase: "/api/airline",
     label: "航空电子客票",
-    heroTitle: "本地 PDF / OFD 格式航空电子客票文件重命名",
-    heroDescription: "批量上传航空电子客票发票文件，按票面字段自动识别并预览新文件名，支持自定义规则后导出重命名结果压缩包。",
-    uploadTitle: "点击或拖拽上传 PDF / OFD 格式航空电子客票文件",
-    uploadDescription: "支持两种航空机票发票版式，上传后先进入解析结果列表，再手动开始重命名。",
-    emptyMessage: "上传 PDF / OFD 航空电子客票文件后，这里会显示解析结果和重命名预览。",
+    heroTitle: "本地 PDF / OFD / 图片格式航空电子客票文件重命名",
+    heroDescription: "批量上传航空电子客票文件，电子 PDF/OFD 优先原生解析，图片和扫描 PDF 自动使用 OCR。",
+    uploadTitle: "点击或拖拽上传 PDF / OFD / JPG / PNG 格式航空电子客票文件",
+    uploadDescription: "支持两种航空机票发票版式，图片和扫描 PDF 自动使用 OCR。",
+    emptyMessage: "上传 PDF / OFD / 图片航空电子客票文件后，这里会显示解析结果和重命名预览。",
     defaultTemplate: "{开票日期}_{起飞机场}_{着陆机场}_{航班号}_{价税合计}",
     templateHint:
       "可用变量：{发票号码} {开票日期} {起飞机场} {着陆机场} {航班号} {座位等级} {起飞时间} {票价} {价税合计} {乘机人姓名} {乘机人身份证号} {自定义内容}",
@@ -127,6 +129,7 @@ const invoiceTypeConfigs = {
     resultColumns: [
       { key: "status", label: "状态" },
       { key: "originalName", label: "原文件名" },
+      { key: "parseSource", label: "解析来源" },
       { key: "invoice_number", label: "发票号码" },
       { key: "issue_date", label: "开票日期" },
       { key: "departure_airport", label: "起飞机场" },
@@ -431,9 +434,9 @@ function updateDragIndicators() {
 }
 
 async function uploadFiles(fileList) {
-  const files = [...fileList].filter(file => /\.(pdf|ofd)$/i.test(file.name));
+  const files = [...fileList].filter(file => /\.(pdf|ofd|jpg|jpeg|png)$/i.test(file.name));
   if (!files.length) {
-    window.alert("请选择 PDF 或 OFD 格式的发票文件。");
+    window.alert("请选择 PDF、OFD、JPG、JPEG 或 PNG 格式的发票文件。");
     return;
   }
 
@@ -675,6 +678,9 @@ function renderCell(item, key) {
   }
   if (key === "originalName") {
     return `<td>${escapeHtml(item.originalName)}</td>`;
+  }
+  if (key === "parseSource") {
+    return `<td>${item.parseSource === "ocr" ? "OCR识别" : "原生解析"}</td>`;
   }
   if (key === "previewName") {
     return `<td class="filename-preview">${escapeHtml(item.previewName || "-")}</td>`;

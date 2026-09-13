@@ -1,0 +1,4 @@
+# Optional local OCR support. Install this only when image/scanned-PDF OCR is needed.
+pymupdf>=1.24,<2
+paddlepaddle>=3.0,<4
+paddleocr>=3.0,<4

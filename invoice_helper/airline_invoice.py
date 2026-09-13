@@ -26,14 +26,13 @@ AIRLINE_TEMPLATE_ALIASES = {
 
 
 def parse_airline_invoice_from_bytes(file_name: str, file_bytes: bytes) -> AirlineInvoiceFields:
-    extension = Path(file_name).suffix.lower()
-    if extension == ".pdf":
-        text = extract_text_from_pdf_bytes(file_bytes)
-    elif extension == ".ofd":
-        text = extract_text_from_ofd_bytes(file_bytes)
-    else:
-        raise ValueError("仅支持 PDF 或 OFD 格式。")
-    return parse_airline_invoice_text(text)
+    from .document_text import extract_document_text
+
+    extracted = extract_document_text(file_name, file_bytes, validator=parse_airline_invoice_text)
+    fields = parse_airline_invoice_text(extracted.text)
+    fields.parse_source = extracted.source
+    fields.raw_text = extracted.text
+    return fields
 
 
 def parse_airline_invoice_text(text: str) -> AirlineInvoiceFields:
@@ -108,7 +107,7 @@ def _extract_invoice_type(compact: str) -> str:
 
 
 def _extract_invoice_number(lines: list[str], compact: str) -> str:
-    direct = _search_group(compact, r"发票号码[:：]?(\d{16,20})")
+    direct = _search_group(compact, r"发票号码[:：]?(\d{8,20})")
     if direct:
         return direct
     for line in lines:
@@ -154,13 +153,13 @@ def _extract_amount(lines: list[str], compact: str) -> str:
 
 
 def _extract_total_amount(lines: list[str], compact: str) -> str:
-    direct = _search_group(compact, r"(?:小写）|小写\)|\(小写\))¥?\s?(\d+\.\d{2})")
+    direct = _search_group(compact, r"(?:小写）|小写\)|\(小写\))[¥￥]?\s?(\d+\.\d{2})")
     if direct:
         return direct
-    chinese_pairs = re.findall(r"[零壹贰叁肆伍陆柒捌玖拾佰仟万亿圆角分整]+\s*¥\s?(\d+\.\d{2})", compact)
+    chinese_pairs = re.findall(r"[零壹贰叁肆伍陆柒捌玖拾佰仟万亿圆角分整]+\s*[¥￥]\s?(\d+\.\d{2})", compact)
     if chinese_pairs:
         return chinese_pairs[-1]
-    currency_values = re.findall(r"¥\s?(\d+\.\d{2})", compact)
+    currency_values = re.findall(r"[¥￥]\s?(\d+\.\d{2})", compact)
     return currency_values[0] if currency_values else ""
 
 
@@ -184,6 +183,20 @@ def _extract_passenger(lines: list[str], compact: str) -> tuple[str, str]:
 
 def _extract_flight_segments(lines: list[str], compact: str) -> tuple[str, str, str, str, str]:
     for line in lines:
+        compact_match = re.search(
+            r"(?P<name>[\u4e00-\u9fff]{2,6})\s*(?P<date>20\d{2}-?\d{4}|20\d{6})\s*"
+            r"(?P<flight>[A-Z]{2}\d{3,4})\s*(?P<class>[A-Z](?:\S)?舱|[A-Z])\s*"
+            r"(?P<route>[\u4e00-\u9fff]+-[\u4e00-\u9fff]+)",
+            line,
+        )
+        if compact_match:
+            return (
+                _normalize_flight_date(compact_match.group("date")),
+                compact_match.group("flight"),
+                compact_match.group("class"),
+                compact_match.group("route"),
+                "",
+            )
         match = re.search(
             r"(?P<name>[\u4e00-\u9fff]{2,6})\s*(?P<date>20\d{2}-\d{2}-\d{2}|20\d{6})\s*(?P<flight>[A-Z]{2}\d{3,4})\s*(?P<class1>[\u4e00-\u9fff]{2,8})\s*(?P<class2>[A-Z]\S?舱|[A-Z]舱|[A-Z])?\s*(?P<route>[\u4e00-\u9fff]+-[\u4e00-\u9fff]+)\s*(?P<trailing>\d{6,})?",
             line,

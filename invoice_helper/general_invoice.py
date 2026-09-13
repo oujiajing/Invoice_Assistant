@@ -46,14 +46,13 @@ SELLER_SUFFIXES = [
 
 
 def parse_general_invoice_from_bytes(file_name: str, file_bytes: bytes) -> GeneralInvoiceFields:
-    extension = Path(file_name).suffix.lower()
-    if extension == ".pdf":
-        text = extract_text_from_pdf_bytes(file_bytes)
-    elif extension == ".ofd":
-        text = extract_text_from_ofd_bytes(file_bytes)
-    else:
-        raise ValueError("仅支持 PDF 或 OFD 格式。")
-    return parse_general_invoice_text(text)
+    from .document_text import extract_document_text
+
+    extracted = extract_document_text(file_name, file_bytes, validator=parse_general_invoice_text)
+    fields = parse_general_invoice_text(extracted.text)
+    fields.parse_source = extracted.source
+    fields.raw_text = extracted.text
+    return fields
 
 
 def parse_general_invoice_text(text: str) -> GeneralInvoiceFields:
@@ -132,7 +131,11 @@ def _extract_parties(lines: list[str], compact: str, invoice_number: str) -> tup
     seller_name = ""
     seller_tax_number = ""
 
-    direct_names = [line.split("名称：", 1)[1] for line in lines if line.startswith("名称：") and line.split("名称：", 1)[1]]
+    direct_names = []
+    for line in lines:
+        name_match = re.match(r"名称[:：](.+)", line)
+        if name_match and name_match.group(1).strip():
+            direct_names.append(name_match.group(1).strip())
     direct_taxes = [
         _search_group(line, r"(?:统一社会信用代码/?纳税人识别号|统一社会信用代码/纳税人识别号)[:：]?([0-9A-Z]{15,20})")
         for line in lines
@@ -238,7 +241,7 @@ def _extract_amounts(lines: list[str], compact: str) -> tuple[str, str, str]:
     amount = ""
     tax_amount = ""
 
-    amount_line_match = re.findall(r"¥\s?(\d+\.\d{2})", compact)
+    amount_line_match = re.findall(r"[¥￥]\s?(\d+\.\d{2})", compact)
     if len(amount_line_match) >= 3:
         amount = amount_line_match[-3]
         tax_amount = amount_line_match[-2]
@@ -326,13 +329,13 @@ def _extract_issue_date(lines: list[str], compact: str) -> str:
 
 
 def _extract_total_amount(lines: list[str], compact: str) -> str:
-    direct = _search_group(compact, r"(?:（小写）|小写\)|小写）)¥\s?(\d+\.\d{2})")
+    direct = _search_group(compact, r"(?:（小写）|小写\)|小写）)[¥￥]\s?(\d+\.\d{2})")
     if direct:
         return normalize_amount(direct)
-    numeral_pairs = re.findall(r"([零壹贰叁肆伍陆柒捌玖拾佰仟万亿圆角分整]{4,})¥\s?(\d+\.\d{2})", compact)
+    numeral_pairs = re.findall(r"([零壹贰叁肆伍陆柒捌玖拾佰仟万亿圆角分整]{4,})[¥￥]\s?(\d+\.\d{2})", compact)
     if numeral_pairs:
         return normalize_amount(numeral_pairs[-1][1])
-    currencies = re.findall(r"¥\s?(\d+\.\d{2})", compact)
+    currencies = re.findall(r"[¥￥]\s?(\d+\.\d{2})", compact)
     return normalize_amount(currencies[-1]) if currencies else ""
 
 

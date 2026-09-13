@@ -7,9 +7,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .airline_invoice import parse_airline_invoice_from_bytes
-from .general_invoice import parse_general_invoice_from_bytes
-from .railway import extract_text_from_ofd_bytes, extract_text_from_pdf_bytes, parse_railway_ticket_from_bytes
+from .airline_invoice import parse_airline_invoice_text
+from .document_text import extract_document_text
+from .general_invoice import parse_general_invoice_text
+from .railway import parse_railway_ticket_text
 
 
 def init_ledger_db(db_path: Path) -> None:
@@ -32,25 +33,32 @@ def init_ledger_db(db_path: Path) -> None:
                 original_name TEXT NOT NULL,
                 stored_path TEXT NOT NULL,
                 file_type TEXT NOT NULL,
+                parse_source TEXT NOT NULL DEFAULT 'native',
                 parse_status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 fields_json TEXT NOT NULL
             )
             """
         )
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(ledger_entries)").fetchall()}
+        if "parse_source" not in columns:
+            connection.execute("ALTER TABLE ledger_entries ADD COLUMN parse_source TEXT NOT NULL DEFAULT 'native'")
 
 
-def detect_invoice_for_ledger(file_name: str, file_bytes: bytes) -> tuple[str, dict[str, str], str]:
-    for category, parser in (
-        ("railway", parse_railway_ticket_from_bytes),
-        ("airline", parse_airline_invoice_from_bytes),
-        ("general", parse_general_invoice_from_bytes),
-    ):
+def detect_invoice_for_ledger(file_name: str, file_bytes: bytes) -> tuple[str, dict[str, str], str, str]:
+    extracted = extract_document_text(file_name, file_bytes)
+    text_parsers = (
+        ("railway", parse_railway_ticket_text),
+        ("airline", parse_airline_invoice_text),
+        ("general", parse_general_invoice_text),
+    )
+    for category, parser in text_parsers:
         try:
-            fields = parser(file_name, file_bytes)
-            return category, fields.to_dict(), _extract_text(file_name, file_bytes)
+            fields = parser(extracted.text)
+            return category, fields.to_dict(), extracted.text, extracted.source
         except Exception:
             continue
+
     raise ValueError("未识别为支持的发票类型。")
 
 
@@ -63,6 +71,7 @@ def build_ledger_entry(
     original_name: str,
     stored_path: str,
     file_type: str,
+    parse_source: str = "native",
 ) -> dict[str, str]:
     title = _build_title(category, fields, raw_text)
     amount = _build_amount(category, fields)
@@ -89,6 +98,7 @@ def build_ledger_entry(
         "original_name": original_name,
         "stored_path": stored_path,
         "file_type": file_type,
+        "parse_source": parse_source,
         "parse_status": "success",
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "fields_json": json.dumps(fields, ensure_ascii=False),
@@ -102,11 +112,11 @@ def insert_ledger_entry(db_path: Path, entry: dict[str, str]) -> None:
             INSERT INTO ledger_entries (
                 id, invoice_category, expense_type, invoice_type_filter, title, amount,
                 issue_date, payer_name, seller_name, item_summary, remarks, original_name,
-                stored_path, file_type, parse_status, created_at, fields_json
+                stored_path, file_type, parse_source, parse_status, created_at, fields_json
             ) VALUES (
                 :id, :invoice_category, :expense_type, :invoice_type_filter, :title, :amount,
                 :issue_date, :payer_name, :seller_name, :item_summary, :remarks, :original_name,
-                :stored_path, :file_type, :parse_status, :created_at, :fields_json
+                :stored_path, :file_type, :parse_source, :parse_status, :created_at, :fields_json
             )
             """,
             entry,
@@ -126,7 +136,7 @@ def list_ledger_entries(
 ) -> list[dict[str, Any]]:
     query = """
         SELECT id, invoice_category, expense_type, invoice_type_filter, title, amount, issue_date,
-               payer_name, seller_name, item_summary, remarks, original_name, stored_path, file_type,
+               payer_name, seller_name, item_summary, remarks, original_name, stored_path, file_type, parse_source,
                parse_status, created_at, fields_json
         FROM ledger_entries
     """
@@ -174,7 +184,7 @@ def get_ledger_entry(db_path: Path, entry_id: str) -> dict[str, Any] | None:
         row = connection.execute(
             """
             SELECT id, invoice_category, expense_type, invoice_type_filter, title, amount, issue_date,
-                   payer_name, seller_name, item_summary, remarks, original_name, stored_path, file_type,
+                   payer_name, seller_name, item_summary, remarks, original_name, stored_path, file_type, parse_source,
                    parse_status, created_at, fields_json
             FROM ledger_entries
             WHERE id = ?
@@ -193,7 +203,7 @@ def delete_ledger_entries(db_path: Path, entry_ids: list[str]) -> list[dict[str,
         rows = connection.execute(
             f"""
             SELECT id, invoice_category, expense_type, invoice_type_filter, title, amount, issue_date,
-                   payer_name, seller_name, item_summary, remarks, original_name, stored_path, file_type,
+                   payer_name, seller_name, item_summary, remarks, original_name, stored_path, file_type, parse_source,
                    parse_status, created_at, fields_json
             FROM ledger_entries
             WHERE id IN ({placeholders})
@@ -208,13 +218,6 @@ def _row_to_entry(row: sqlite3.Row) -> dict[str, Any]:
     payload = dict(row)
     payload["fields"] = json.loads(payload.pop("fields_json") or "{}")
     return payload
-
-
-def _extract_text(file_name: str, file_bytes: bytes) -> str:
-    extension = Path(file_name).suffix.lower()
-    if extension == ".pdf":
-        return extract_text_from_pdf_bytes(file_bytes)
-    return extract_text_from_ofd_bytes(file_bytes)
 
 
 def _build_title(category: str, fields: dict[str, str], raw_text: str) -> str:

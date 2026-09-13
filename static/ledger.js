@@ -175,9 +175,9 @@ async function loadLedgerReport() {
 }
 
 async function uploadLedgerFiles(fileList) {
-  const files = [...fileList].filter(file => /\.(pdf|ofd)$/i.test(file.name));
+  const files = [...fileList].filter(file => /\.(pdf|ofd|jpg|jpeg|png)$/i.test(file.name));
   if (!files.length) {
-    window.alert("请选择 PDF 或 OFD 格式的发票文件。");
+    window.alert("请选择 PDF、OFD 或 JPG/JPEG/PNG 格式的发票文件。");
     return;
   }
 

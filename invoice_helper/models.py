@@ -19,9 +19,14 @@ class RailwayTicketFields:
     passenger_id: str = ""
     custom_content: str = ""
     ticket_label: str = ""
+    parse_source: str = field(default="native", repr=False)
+    raw_text: str = field(default="", repr=False)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload.pop("parse_source", None)
+        payload.pop("raw_text", None)
+        return payload
 
 
 @dataclass(slots=True)
@@ -34,6 +39,7 @@ class RailwayDocument:
     parse_status: str
     fields: RailwayTicketFields = field(default_factory=RailwayTicketFields)
     error: str = ""
+    parse_source: str = "native"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -43,6 +49,7 @@ class RailwayDocument:
         payload["storedPath"] = payload.pop("stored_path")
         payload["fileType"] = payload.pop("file_type")
         payload["parseStatus"] = payload.pop("parse_status")
+        payload["parseSource"] = payload.pop("parse_source")
         return payload
 
 
@@ -65,9 +72,14 @@ class GeneralInvoiceFields:
     reviewer: str = ""
     issuer: str = ""
     custom_content: str = ""
+    parse_source: str = field(default="native", repr=False)
+    raw_text: str = field(default="", repr=False)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload.pop("parse_source", None)
+        payload.pop("raw_text", None)
+        return payload
 
 
 @dataclass(slots=True)
@@ -80,6 +92,7 @@ class GeneralInvoiceDocument:
     parse_status: str
     fields: GeneralInvoiceFields = field(default_factory=GeneralInvoiceFields)
     error: str = ""
+    parse_source: str = "native"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -89,6 +102,7 @@ class GeneralInvoiceDocument:
         payload["storedPath"] = payload.pop("stored_path")
         payload["fileType"] = payload.pop("file_type")
         payload["parseStatus"] = payload.pop("parse_status")
+        payload["parseSource"] = payload.pop("parse_source")
         return payload
 
 
@@ -107,9 +121,14 @@ class AirlineInvoiceFields:
     passenger_id: str = ""
     custom_content: str = ""
     invoice_type: str = ""
+    parse_source: str = field(default="native", repr=False)
+    raw_text: str = field(default="", repr=False)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload.pop("parse_source", None)
+        payload.pop("raw_text", None)
+        return payload
 
 
 @dataclass(slots=True)
@@ -122,6 +141,7 @@ class AirlineInvoiceDocument:
     parse_status: str
     fields: AirlineInvoiceFields = field(default_factory=AirlineInvoiceFields)
     error: str = ""
+    parse_source: str = "native"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -131,6 +151,7 @@ class AirlineInvoiceDocument:
         payload["storedPath"] = payload.pop("stored_path")
         payload["fileType"] = payload.pop("file_type")
         payload["parseStatus"] = payload.pop("parse_status")
+        payload["parseSource"] = payload.pop("parse_source")
         return payload
 
 
